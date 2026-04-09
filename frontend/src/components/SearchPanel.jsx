@@ -26,7 +26,7 @@ export function SearchPanel({ initialValues, genres, onSearch, searching }) {
   return (
     <form className="search-panel" onSubmit={handleSubmit}>
       <h2>Search the catalog</h2>
-      <p>Search by title, then narrow by media type, genre, or release year.</p>
+      <p>Start with a title, then narrow the list with a few quick filters.</p>
 
       <div className="form-grid">
         <div className="field field-full">
@@ -34,7 +34,7 @@ export function SearchPanel({ initialValues, genres, onSearch, searching }) {
           <input
             id="query"
             type="text"
-            placeholder="The Bear, Dune, Sinners..."
+            placeholder="The Studio, Dune, Sinners..."
             value={formState.query}
             onChange={(event) => handleChange("query", event.target.value)}
           />

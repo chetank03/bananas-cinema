@@ -1,9 +1,28 @@
 import { useEffect, useState } from "react";
-import { createReview, fetchGenres, fetchHome, fetchReviews, fetchTitleDetails, searchTitles } from "./api/movies";
+import { fetchCurrentUser, login, logout, signup } from "./api/auth";
+import {
+  addWatchlistItem,
+  createReview,
+  createWatchlist,
+  deleteFavorite,
+  deleteWatchlist,
+  deleteWatchlistItem,
+  fetchFavorites,
+  fetchGenres,
+  fetchHome,
+  fetchReviews,
+  fetchTitleDetails,
+  fetchWatchlists,
+  saveFavorite,
+  searchTitles,
+  updateWatchlist,
+} from "./api/movies";
+import { AuthModal } from "./components/AuthModal";
 import { DetailPanel } from "./components/DetailPanel";
 import { MediaGrid } from "./components/MediaGrid";
 import { SearchPanel } from "./components/SearchPanel";
-import { useLocalFavorites } from "./hooks/useLocalFavorites";
+import { WatchlistsModal } from "./components/WatchlistsModal";
+import { useTheme } from "./hooks/useTheme";
 import "./App.css";
 
 const EMPTY_HOME = {
@@ -13,26 +32,61 @@ const EMPTY_HOME = {
   upcoming_movies: [],
 };
 
+function SunIcon() {
+  return (
+    <svg aria-hidden="true" className="theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <circle cx="12" cy="12" r="4.2" />
+      <path d="M12 2.5v2.6M12 18.9v2.6M21.5 12h-2.6M5.1 12H2.5M18.7 5.3l-1.8 1.8M7.1 16.9l-1.8 1.8M18.7 18.7l-1.8-1.8M7.1 7.1 5.3 5.3" />
+    </svg>
+  );
+}
+
+function MoonIcon() {
+  return (
+    <svg aria-hidden="true" className="theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M19.5 14.8A8.5 8.5 0 0 1 9.2 4.5a8.5 8.5 0 1 0 10.3 10.3Z" />
+    </svg>
+  );
+}
+
 function App() {
   const [genres, setGenres] = useState([]);
   const [home, setHome] = useState(EMPTY_HOME);
+  const [favorites, setFavorites] = useState([]);
+  const [watchlists, setWatchlists] = useState([]);
   const [results, setResults] = useState([]);
   const [selectedTitle, setSelectedTitle] = useState(null);
   const [selectedReviews, setSelectedReviews] = useState([]);
   const [queryState, setQueryState] = useState({ query: "", media_type: "all", genre: "", year: "" });
+  const [user, setUser] = useState(null);
   const [loadingHome, setLoadingHome] = useState(true);
   const [searching, setSearching] = useState(false);
   const [loadingDetails, setLoadingDetails] = useState(false);
+  const [authLoading, setAuthLoading] = useState(false);
   const [error, setError] = useState("");
+  const [authError, setAuthError] = useState("");
   const [searched, setSearched] = useState(false);
-  const { favorites, isFavorite, toggleFavorite } = useLocalFavorites();
+  const [authOpen, setAuthOpen] = useState(false);
+  const [authMode, setAuthMode] = useState("login");
+  const [watchlistsOpen, setWatchlistsOpen] = useState(false);
+  const [watchlistTarget, setWatchlistTarget] = useState(null);
+  const [watchlistsLoading, setWatchlistsLoading] = useState(false);
+  const [watchlistsError, setWatchlistsError] = useState("");
+  const { theme, toggleTheme } = useTheme();
 
   useEffect(() => {
     async function bootstrap() {
       try {
-        const [homeData, genreData] = await Promise.all([fetchHome(), fetchGenres()]);
+        const [homeData, genreData, meData] = await Promise.all([
+          fetchHome(),
+          fetchGenres(),
+          fetchCurrentUser().catch(() => ({ authenticated: false })),
+        ]);
         setHome(homeData);
         setGenres(genreData.genres);
+        if (meData.authenticated) {
+          setUser(meData.user);
+        }
       } catch (loadError) {
         setError(loadError.message);
       } finally {
@@ -42,6 +96,53 @@ function App() {
 
     bootstrap();
   }, []);
+
+  useEffect(() => {
+    const shouldLockScroll = Boolean(selectedTitle || authOpen || watchlistsOpen);
+    const { overflow } = document.body.style;
+
+    if (shouldLockScroll) {
+      document.body.style.overflow = "hidden";
+    }
+
+    return () => {
+      document.body.style.overflow = overflow;
+    };
+  }, [selectedTitle, authOpen, watchlistsOpen]);
+
+  useEffect(() => {
+    async function loadFavorites() {
+      if (!user) {
+        setFavorites([]);
+        return;
+      }
+      try {
+        const data = await fetchFavorites();
+        setFavorites(data.favorites);
+      } catch (favoritesError) {
+        setError(favoritesError.message);
+      }
+    }
+
+    loadFavorites();
+  }, [user]);
+
+  useEffect(() => {
+    async function loadWatchlists() {
+      if (!user) {
+        setWatchlists([]);
+        return;
+      }
+      try {
+        const data = await fetchWatchlists();
+        setWatchlists(data.watchlists);
+      } catch (watchlistsLoadError) {
+        setError(watchlistsLoadError.message);
+      }
+    }
+
+    loadWatchlists();
+  }, [user]);
 
   async function handleSearch(nextQueryState) {
     setSearching(true);
@@ -81,6 +182,11 @@ function App() {
   }
 
   async function handleCreateReview(payload) {
+    if (!user) {
+      openAuth("login");
+      throw new Error("Sign in to post a review.");
+    }
+
     if (!selectedTitle) {
       return;
     }
@@ -92,12 +198,323 @@ function App() {
     setSelectedReviews((current) => [review, ...current]);
   }
 
+  function openAuth(mode = "login") {
+    setAuthMode(mode);
+    setAuthError("");
+    setAuthOpen(true);
+  }
+
+  function openWatchlists(item = null) {
+    if (!user) {
+      openAuth("login");
+      return;
+    }
+    setWatchlistTarget(item);
+    setWatchlistsError("");
+    setWatchlistsOpen(true);
+  }
+
+  function closeWatchlists() {
+    setWatchlistsOpen(false);
+    setWatchlistTarget(null);
+    setWatchlistsError("");
+  }
+
+  function upsertWatchlist(updatedWatchlist) {
+    setWatchlists((current) => {
+      const exists = current.some((watchlist) => watchlist.id === updatedWatchlist.id);
+      if (exists) {
+        return current.map((watchlist) => (watchlist.id === updatedWatchlist.id ? updatedWatchlist : watchlist));
+      }
+      return [...current, updatedWatchlist];
+    });
+  }
+
+  async function handleAuthSubmit(payload) {
+    setAuthLoading(true);
+    setAuthError("");
+    try {
+      const authData = authMode === "signup" ? await signup(payload) : await login(payload);
+      setUser(authData.user);
+      setAuthOpen(false);
+    } catch (submitError) {
+      setAuthError(submitError.message);
+    } finally {
+      setAuthLoading(false);
+    }
+  }
+
+  async function handleLogout() {
+    setError("");
+    try {
+      await logout();
+      setUser(null);
+      setFavorites([]);
+      setWatchlists([]);
+      closeWatchlists();
+    } catch (logoutError) {
+      setError(logoutError.message);
+    }
+  }
+
+  function favoriteRecordFor(item) {
+    return favorites.find((favorite) => favorite.tmdb_id === item.id && favorite.media_type === item.media_type) || null;
+  }
+
+  function isFavorite(item) {
+    return Boolean(favoriteRecordFor(item));
+  }
+
+  async function handleToggleFavorite(item) {
+    if (!user) {
+      openAuth("login");
+      return;
+    }
+
+    const existingFavorite = favoriteRecordFor(item);
+    try {
+      if (existingFavorite) {
+        await deleteFavorite(existingFavorite.id);
+        setFavorites((current) => current.filter((favorite) => favorite.id !== existingFavorite.id));
+      } else {
+        const favorite = await saveFavorite({
+          tmdb_id: item.id,
+          media_type: item.media_type,
+          title: item.title,
+          poster_url: item.poster_url || "",
+          overview: item.overview || "",
+          year: item.year || "",
+          rating: item.rating || 0,
+          personal_rating: null,
+        });
+        setFavorites((current) => [favorite, ...current]);
+      }
+    } catch (favoriteError) {
+      setError(favoriteError.message);
+    }
+  }
+
+  async function handleSaveFavorite(item, personalRating) {
+    if (!user) {
+      openAuth("login");
+      throw new Error("Sign in to save favorites.");
+    }
+
+    const existingFavorite = favoriteRecordFor(item);
+
+    const favorite = await saveFavorite({
+      tmdb_id: item.id,
+      media_type: item.media_type,
+      title: item.title,
+      poster_url: item.poster_url || "",
+      overview: item.overview || "",
+      year: item.year || "",
+      rating: item.rating || 0,
+      personal_rating: personalRating,
+      watch_later: existingFavorite?.watch_later || false,
+    });
+
+    setFavorites((current) => {
+      const exists = current.some((entry) => entry.id === favorite.id);
+      if (exists) {
+        return current.map((entry) => (entry.id === favorite.id ? favorite : entry));
+      }
+      return [favorite, ...current];
+    });
+  }
+
+  async function handleSaveWatchLater(item) {
+    if (!user) {
+      openAuth("login");
+      throw new Error("Sign in to use watch later.");
+    }
+
+    const existingFavorite = favoriteRecordFor(item);
+    const favorite = await saveFavorite({
+      tmdb_id: item.id,
+      media_type: item.media_type,
+      title: item.title,
+      poster_url: item.poster_url || "",
+      overview: item.overview || "",
+      year: item.year || "",
+      rating: item.rating || 0,
+      personal_rating: existingFavorite?.personal_rating ?? null,
+      watch_later: true,
+    });
+
+    setFavorites((current) => {
+      const exists = current.some((entry) => entry.id === favorite.id);
+      if (exists) {
+        return current.map((entry) => (entry.id === favorite.id ? favorite : entry));
+      }
+      return [favorite, ...current];
+    });
+  }
+
+  async function handleRemoveFavorite(item) {
+    const existingFavorite = favoriteRecordFor(item);
+    if (!existingFavorite) {
+      return;
+    }
+
+    await deleteFavorite(existingFavorite.id);
+    setFavorites((current) => current.filter((favorite) => favorite.id !== existingFavorite.id));
+  }
+
+  async function handleCreateWatchlist(name) {
+    setWatchlistsLoading(true);
+    setWatchlistsError("");
+    try {
+      const watchlist = await createWatchlist({ name });
+      upsertWatchlist(watchlist);
+      return watchlist;
+    } catch (watchlistError) {
+      setWatchlistsError(watchlistError.message);
+      throw watchlistError;
+    } finally {
+      setWatchlistsLoading(false);
+    }
+  }
+
+  async function handleRenameWatchlist(watchlistId, name) {
+    setWatchlistsLoading(true);
+    setWatchlistsError("");
+    try {
+      const watchlist = await updateWatchlist(watchlistId, { name });
+      upsertWatchlist(watchlist);
+    } catch (watchlistError) {
+      setWatchlistsError(watchlistError.message);
+      throw watchlistError;
+    } finally {
+      setWatchlistsLoading(false);
+    }
+  }
+
+  async function handleDeleteWatchlist(watchlistId) {
+    setWatchlistsLoading(true);
+    setWatchlistsError("");
+    try {
+      await deleteWatchlist(watchlistId);
+      setWatchlists((current) => current.filter((watchlist) => watchlist.id !== watchlistId));
+    } catch (watchlistError) {
+      setWatchlistsError(watchlistError.message);
+      throw watchlistError;
+    } finally {
+      setWatchlistsLoading(false);
+    }
+  }
+
+  async function handleAddItemToWatchlist(watchlistId, item) {
+    setWatchlistsLoading(true);
+    setWatchlistsError("");
+    try {
+      const watchlist = await addWatchlistItem(watchlistId, {
+        tmdb_id: item.id,
+        media_type: item.media_type,
+        title: item.title,
+        poster_url: item.poster_url || "",
+        overview: item.overview || "",
+        year: item.year || "",
+        rating: item.rating || 0,
+      });
+      upsertWatchlist(watchlist);
+    } catch (watchlistError) {
+      setWatchlistsError(watchlistError.message);
+      throw watchlistError;
+    } finally {
+      setWatchlistsLoading(false);
+    }
+  }
+
+  async function handleRemoveItemFromWatchlist(watchlistId, itemId) {
+    setWatchlistsLoading(true);
+    setWatchlistsError("");
+    try {
+      await deleteWatchlistItem(watchlistId, itemId);
+      setWatchlists((current) =>
+        current.map((watchlist) =>
+          watchlist.id === watchlistId
+            ? {
+                ...watchlist,
+                items: watchlist.items.filter((entry) => entry.id !== itemId),
+                item_count: watchlist.items.filter((entry) => entry.id !== itemId).length,
+              }
+            : watchlist,
+        ),
+      );
+    } catch (watchlistError) {
+      setWatchlistsError(watchlistError.message);
+      throw watchlistError;
+    } finally {
+      setWatchlistsLoading(false);
+    }
+  }
+
+  const watchedFavorites = favorites.filter((favorite) => !favorite.watch_later);
+  const watchLaterFavorites = favorites.filter((favorite) => favorite.watch_later);
+
   const featuredCollections = [
-    { key: "favorites", title: "Saved Picks", items: favorites },
-    { key: "trending", title: "Trending This Week", items: home.trending },
-    { key: "popular_movies", title: "Popular Movies", items: home.popular_movies },
-    { key: "popular_tv", title: "Popular Series", items: home.popular_tv },
-    { key: "upcoming_movies", title: "Upcoming Releases", items: home.upcoming_movies },
+    {
+      key: "watch_later",
+      title: "Watch Later",
+      description: user
+        ? "Titles you parked for the next free night."
+        : "Sign in to build a watch later queue.",
+      items: watchLaterFavorites
+        .map((favorite) => ({
+          id: favorite.tmdb_id,
+          media_type: favorite.media_type,
+          title: favorite.title,
+          year: favorite.year,
+          rating: favorite.rating,
+          personal_rating: favorite.personal_rating,
+          poster_url: favorite.poster_url,
+          overview: favorite.overview,
+          watch_later: true,
+        })),
+    },
+    {
+      key: "favorites",
+      title: "Watched",
+      description: user
+        ? "Titles you've already watched and rated."
+        : "Sign in to keep track of what you've watched.",
+      items: watchedFavorites.map((favorite) => ({
+        id: favorite.tmdb_id,
+        media_type: favorite.media_type,
+        title: favorite.title,
+        year: favorite.year,
+        rating: favorite.rating,
+        personal_rating: favorite.personal_rating,
+        poster_url: favorite.poster_url,
+        overview: favorite.overview,
+        watch_later: false,
+      })),
+    },
+    {
+      key: "trending",
+      title: "Trending This Week",
+      description: "What audiences are opening first right now.",
+      items: home.trending,
+    },
+    {
+      key: "popular_movies",
+      title: "Popular Movies",
+      description: "Big-screen titles getting the most attention.",
+      items: home.popular_movies,
+    },
+    {
+      key: "popular_tv",
+      title: "Popular Series",
+      description: "Bingeable shows worth keeping on your radar.",
+      items: home.popular_tv,
+    },
+    {
+      key: "upcoming_movies",
+      title: "Upcoming Releases",
+      description: "Fresh releases lining up for the next watchlist update.",
+      items: home.upcoming_movies,
+    },
   ];
 
   return (
@@ -105,13 +522,53 @@ function App() {
       <div className="backdrop-glow backdrop-glow-left" />
       <div className="backdrop-glow backdrop-glow-right" />
 
-      <header className="hero">
+      <header className="topbar">
+        <div className="brand">
+          <div className="brand-logo-wrap">
+            <img className="brand-logo" src="/bananas-cinema-icon.png" alt="Bananas Cinema" />
+          </div>
+        </div>
+
+        <div className="topbar-actions">
+          <button
+            className="ghost-button theme-toggle"
+            type="button"
+            onClick={toggleTheme}
+            aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            title={theme === "dark" ? "Light mode" : "Dark mode"}
+          >
+            {theme === "dark" ? <SunIcon /> : <MoonIcon />}
+          </button>
+          {user ? (
+            <>
+              <button className="ghost-button" type="button" onClick={() => openWatchlists()}>
+                Watchlists
+              </button>
+              <div className="user-badge">{user.username}</div>
+              <button className="ghost-button" type="button" onClick={handleLogout}>
+                Logout
+              </button>
+            </>
+          ) : (
+            <>
+              <button className="ghost-button" type="button" onClick={() => openAuth("login")}>
+                Sign in
+              </button>
+              <button className="primary-button" type="button" onClick={() => openAuth("signup")}>
+                Create account
+              </button>
+            </>
+          )}
+        </div>
+      </header>
+
+      <section className="hero">
         <div className="hero-copy">
           <p className="eyebrow">Bananas Cinema</p>
           <h1>Find the next film or series worth staying up for.</h1>
           <p className="hero-text">
-            Search TMDb-powered movie and TV data, browse what is trending, and keep a short list of titles you want
-            to revisit.
+            Search movie and TV data, mark what you have watched, park titles for later, build watchlists, and post
+            reviews as a signed-in user.
           </p>
           <div className="hero-stats">
             <div>
@@ -119,8 +576,8 @@ function App() {
               <p>Trending picks</p>
             </div>
             <div>
-              <span>{favorites.length}</span>
-              <p>Saved locally</p>
+              <span>{watchedFavorites.length}</span>
+              <p>{user ? "Marked watched" : "Tracked after login"}</p>
             </div>
             <div>
               <span>{genres.length || "--"}</span>
@@ -130,7 +587,7 @@ function App() {
         </div>
 
         <SearchPanel initialValues={queryState} genres={genres} onSearch={handleSearch} searching={searching} />
-      </header>
+      </section>
 
       {error ? <div className="status-banner error">{error}</div> : null}
       {loadingHome ? <div className="status-banner">Loading Bananas Cinema...</div> : null}
@@ -139,11 +596,12 @@ function App() {
       {searched ? (
         <section className="content-section">
           <div className="section-heading">
-            <div>
+            <div className="section-copy">
               <p className="section-label">Search Results</p>
               <h2>
                 {results.length ? `${results.length} match${results.length === 1 ? "" : "es"} found` : "No results"}
               </h2>
+              <p className="section-description">Refine by title, genre, media type, or release year.</p>
             </div>
             <button className="ghost-button" type="button" onClick={() => setSearched(false)}>
               Back to featured sections
@@ -154,7 +612,7 @@ function App() {
             items={results}
             emptyMessage="Try a different title, genre, or year filter."
             onOpenDetails={handleOpenDetails}
-            onToggleFavorite={toggleFavorite}
+            onToggleFavorite={handleToggleFavorite}
             isFavorite={isFavorite}
           />
         </section>
@@ -162,19 +620,27 @@ function App() {
         featuredCollections.map((section) => (
           <section className="content-section" key={section.key}>
             <div className="section-heading">
-              <div>
-                <p className="section-label">{section.key === "favorites" ? "Your List" : "Featured"}</p>
+              <div className="section-copy">
+                <p className="section-label">{section.key === "favorites" || section.key === "watch_later" ? "Your List" : "Featured"}</p>
                 <h2>{section.title}</h2>
+                <p className="section-description">{section.description}</p>
               </div>
             </div>
             <MediaGrid
               items={section.items}
               emptyMessage={
-                section.key === "favorites" ? "Save a few titles and they will show up here." : "Nothing to show yet."
+                section.key === "favorites" || section.key === "watch_later"
+                  ? user
+                    ? section.key === "watch_later"
+                      ? "Mark a few titles as watch later and they will show up here."
+                      : "Mark a few titles as watched and they will show up here."
+                    : "Sign in to save titles to your account."
+                  : "Nothing to show yet."
               }
               onOpenDetails={handleOpenDetails}
-              onToggleFavorite={toggleFavorite}
+              onToggleFavorite={handleToggleFavorite}
               isFavorite={isFavorite}
+              compact={section.key === "favorites" || section.key === "watch_later"}
             />
           </section>
         ))
@@ -183,10 +649,42 @@ function App() {
       <DetailPanel
         item={selectedTitle}
         reviews={selectedReviews}
+        user={user}
+        favorite={selectedTitle ? favoriteRecordFor(selectedTitle) : null}
         onClose={() => setSelectedTitle(null)}
         onCreateReview={handleCreateReview}
-        onToggleFavorite={toggleFavorite}
+        onToggleFavorite={handleToggleFavorite}
+        onSaveFavorite={handleSaveFavorite}
+        onSaveWatchLater={handleSaveWatchLater}
+        onOpenWatchlists={openWatchlists}
+        onRemoveFavorite={handleRemoveFavorite}
+        onRequireAuth={() => openAuth("login")}
         isFavorite={isFavorite}
+      />
+
+      <WatchlistsModal
+        open={watchlistsOpen}
+        onClose={closeWatchlists}
+        activeItem={watchlistTarget}
+        watchlists={watchlists}
+        loading={watchlistsLoading}
+        error={watchlistsError}
+        onCreateWatchlist={handleCreateWatchlist}
+        onRenameWatchlist={handleRenameWatchlist}
+        onDeleteWatchlist={handleDeleteWatchlist}
+        onAddItem={handleAddItemToWatchlist}
+        onRemoveItem={handleRemoveItemFromWatchlist}
+      />
+
+      <AuthModal
+        key={authMode}
+        open={authOpen}
+        mode={authMode}
+        onClose={() => setAuthOpen(false)}
+        onSubmit={handleAuthSubmit}
+        onModeChange={setAuthMode}
+        loading={authLoading}
+        error={authError}
       />
     </div>
   );

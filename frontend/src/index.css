@@ -1,16 +1,66 @@
 :root {
+  --bg-solid: #fff7cf;
+  --bg-gradient:
+    radial-gradient(circle at top left, rgba(246, 222, 117, 0.65), transparent 26%),
+    radial-gradient(circle at top right, rgba(150, 187, 99, 0.3), transparent 28%),
+    linear-gradient(180deg, #fffef7 0%, #fff9de 48%, #fff7cf 100%);
+  --surface: rgba(255, 251, 231, 0.92);
+  --surface-strong: rgba(255, 255, 246, 0.96);
+  --surface-soft: rgba(255, 255, 255, 0.72);
+  --text-primary: #1f1a10;
+  --text-muted: rgba(64, 54, 31, 0.76);
+  --outline: rgba(97, 125, 47, 0.12);
+  --outline-strong: rgba(97, 125, 47, 0.18);
+  --accent: #d7b11f;
+  --accent-strong: #b99515;
+  --accent-soft: #f6de75;
+  --accent-text: #1f1a10;
+  --leaf: #617d2f;
+  --leaf-deep: #42571d;
+  --overlay: rgba(42, 35, 18, 0.38);
+  --hero-start: rgba(255, 250, 213, 0.98);
+  --hero-end: rgba(255, 243, 178, 0.95);
+  --poster-gradient: linear-gradient(180deg, rgba(246, 222, 117, 0.52), rgba(108, 138, 62, 0.18));
+  --backdrop-gradient: linear-gradient(135deg, rgba(246, 222, 117, 0.74), rgba(97, 125, 47, 0.24));
+  --shadow-soft: 0 18px 40px rgba(101, 87, 27, 0.12);
+  --shadow-strong: 0 28px 80px rgba(67, 56, 15, 0.16);
   font-family: "Avenir Next", "Segoe UI", sans-serif;
   line-height: 1.5;
   font-weight: 400;
-  color: #f8f2e8;
-  background:
-    radial-gradient(circle at top left, rgba(221, 93, 54, 0.18), transparent 30%),
-    radial-gradient(circle at top right, rgba(244, 195, 108, 0.16), transparent 32%),
-    linear-gradient(160deg, #120d11 0%, #19121c 40%, #0d1018 100%);
+  color: var(--text-primary);
+  background: var(--bg-gradient);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+:root[data-theme="dark"] {
+  --bg-solid: #10140f;
+  --bg-gradient:
+    radial-gradient(circle at top left, rgba(228, 191, 53, 0.12), transparent 26%),
+    radial-gradient(circle at top right, rgba(112, 146, 74, 0.12), transparent 28%),
+    linear-gradient(180deg, #17140e 0%, #1e190f 42%, #10140f 100%);
+  --surface: rgba(32, 27, 18, 0.92);
+  --surface-strong: rgba(38, 31, 20, 0.96);
+  --surface-soft: rgba(45, 38, 24, 0.86);
+  --text-primary: #fff4c7;
+  --text-muted: rgba(252, 239, 178, 0.72);
+  --outline: rgba(246, 222, 117, 0.12);
+  --outline-strong: rgba(246, 222, 117, 0.2);
+  --accent: #f1cb3a;
+  --accent-strong: #ffd84f;
+  --accent-soft: #8c7520;
+  --accent-text: #19160f;
+  --leaf: #adc66f;
+  --leaf-deep: #d9eea2;
+  --overlay: rgba(5, 4, 2, 0.62);
+  --hero-start: rgba(44, 37, 22, 0.98);
+  --hero-end: rgba(32, 27, 17, 0.96);
+  --poster-gradient: linear-gradient(180deg, rgba(241, 203, 58, 0.24), rgba(81, 109, 49, 0.14));
+  --backdrop-gradient: linear-gradient(135deg, rgba(241, 203, 58, 0.3), rgba(85, 115, 52, 0.2));
+  --shadow-soft: 0 18px 40px rgba(0, 0, 0, 0.28);
+  --shadow-strong: 0 28px 80px rgba(0, 0, 0, 0.4);
 }
 
 * {
@@ -19,12 +69,18 @@
 
 html {
   scroll-behavior: smooth;
+  background-color: var(--bg-solid);
+  overscroll-behavior-y: none;
 }
 
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  color: var(--text-primary);
+  background-color: var(--bg-solid);
+  background-image: var(--bg-gradient);
+  overscroll-behavior-y: none;
 }
 
 button,
@@ -40,4 +96,5 @@ a {
 
 #root {
   min-height: 100vh;
+  background-color: var(--bg-solid);
 }

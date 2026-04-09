@@ -1,19 +1,16 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api";
+import { getStoredToken } from "./auth";
+import { requestJson } from "./client";
 
 async function request(path, options = {}) {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const token = getStoredToken();
+  return requestJson(path, {
     headers: {
       "Content-Type": "application/json",
+      ...(token ? { Authorization: `Token ${token}` } : {}),
       ...(options.headers || {}),
     },
     ...options,
   });
-
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data.detail || "Request failed.");
-  }
-  return data;
 }
 
 export function fetchHome() {
@@ -46,5 +43,59 @@ export function createReview(mediaType, tmdbId, payload) {
   return request(`/reviews/${mediaType}/${tmdbId}/`, {
     method: "POST",
     body: JSON.stringify(payload),
+  });
+}
+
+export function fetchFavorites() {
+  return request("/favorites/");
+}
+
+export function saveFavorite(payload) {
+  return request("/favorites/", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteFavorite(favoriteId) {
+  return request(`/favorites/${favoriteId}/`, {
+    method: "DELETE",
+  });
+}
+
+export function fetchWatchlists() {
+  return request("/watchlists/");
+}
+
+export function createWatchlist(payload) {
+  return request("/watchlists/", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateWatchlist(watchlistId, payload) {
+  return request(`/watchlists/${watchlistId}/`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteWatchlist(watchlistId) {
+  return request(`/watchlists/${watchlistId}/`, {
+    method: "DELETE",
+  });
+}
+
+export function addWatchlistItem(watchlistId, payload) {
+  return request(`/watchlists/${watchlistId}/items/`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteWatchlistItem(watchlistId, itemId) {
+  return request(`/watchlists/${watchlistId}/items/${itemId}/`, {
+    method: "DELETE",
   });
 }

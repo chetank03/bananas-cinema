@@ -2,10 +2,15 @@ from collections import OrderedDict
 
 import requests
 from django.conf import settings
-from rest_framework.decorators import api_view
+from django.contrib.auth import authenticate
+from django.contrib.auth.models import User
+from rest_framework.authentication import TokenAuthentication
+from rest_framework.authtoken.models import Token
+from rest_framework.decorators import api_view, authentication_classes, permission_classes
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
-from .models import Review
+from .models import Favorite, Review, Watchlist, WatchlistItem
 
 
 class TMDbError(Exception):
@@ -147,6 +152,8 @@ def _details_payload(media_type, tmdb_id):
         f"/{media_type}/{tmdb_id}",
         {"append_to_response": "credits,videos,similar"},
     )
+    episode_run_time = data.get("episode_run_time") or []
+    runtime = data.get("runtime") or (episode_run_time[0] if episode_run_time else None)
 
     genres = [genre["name"] for genre in data.get("genres", [])]
     cast = [
@@ -178,7 +185,7 @@ def _details_payload(media_type, tmdb_id):
         "release_date": data.get("release_date") or data.get("first_air_date") or "",
         "rating": data.get("vote_average") or 0,
         "vote_count": data.get("vote_count") or 0,
-        "runtime": data.get("runtime") or data.get("episode_run_time", [None])[0],
+        "runtime": runtime,
         "genres": genres,
         "cast": cast,
         "crew": crew,
@@ -201,12 +208,140 @@ def _serialize_review(review):
     }
 
 
+def _serialize_favorite(favorite):
+    return {
+        "id": favorite.id,
+        "tmdb_id": favorite.tmdb_id,
+        "media_type": favorite.media_type,
+        "title": favorite.title,
+        "poster_url": favorite.poster_url,
+        "overview": favorite.overview,
+        "year": favorite.year,
+        "rating": favorite.rating,
+        "personal_rating": favorite.personal_rating,
+        "watch_later": favorite.watch_later,
+    }
+
+
+def _serialize_watchlist_item(item):
+    return {
+        "id": item.id,
+        "tmdb_id": item.tmdb_id,
+        "media_type": item.media_type,
+        "title": item.title,
+        "poster_url": item.poster_url,
+        "overview": item.overview,
+        "year": item.year,
+        "rating": item.rating,
+    }
+
+
+def _serialize_watchlist(watchlist):
+    items = list(watchlist.items.all())
+    return {
+        "id": watchlist.id,
+        "name": watchlist.name,
+        "item_count": len(items),
+        "items": [_serialize_watchlist_item(item) for item in items],
+    }
+
+
+def _serialize_user(user, token=None):
+    payload = {
+        "authenticated": True,
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+        },
+    }
+    if token is not None:
+        payload["token"] = token.key
+    return payload
+
+
+def _require_string(value, field_name):
+    value = str(value or "").strip()
+    if not value:
+        raise ValueError(f"{field_name} is required.")
+    return value
+
+
+def _coerce_bool(value):
+    if isinstance(value, bool):
+        return value
+    if value in (None, ""):
+        return False
+    if isinstance(value, (int, float)):
+        return bool(value)
+
+    normalized = str(value).strip().lower()
+    if normalized in {"true", "1", "yes", "y", "on"}:
+        return True
+    if normalized in {"false", "0", "no", "n", "off"}:
+        return False
+    raise ValueError("Boolean value expected.")
+
+
 @api_view(["GET"])
+@permission_classes([AllowAny])
 def health(request):
     return Response({"status": "ok"})
 
 
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def auth_signup(request):
+    try:
+        username = _require_string(request.data.get("username"), "Username")
+        email = _require_string(request.data.get("email"), "Email")
+        password = _require_string(request.data.get("password"), "Password")
+    except ValueError as exc:
+        return Response({"detail": str(exc)}, status=400)
+
+    if User.objects.filter(username=username).exists():
+        return Response({"detail": "Username already exists."}, status=400)
+    if User.objects.filter(email__iexact=email).exists():
+        return Response({"detail": "Email already exists."}, status=400)
+
+    user = User.objects.create_user(username=username, email=email, password=password)
+    token = Token.objects.create(user=user)
+    return Response(_serialize_user(user, token), status=201)
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def auth_login(request):
+    username = str(request.data.get("username", "")).strip()
+    password = str(request.data.get("password", "")).strip()
+    user = authenticate(username=username, password=password)
+    if user is None:
+        return Response({"detail": "Invalid username or password."}, status=400)
+
+    token, _ = Token.objects.get_or_create(user=user)
+    return Response(_serialize_user(user, token))
+
+
+@api_view(["POST"])
+@authentication_classes([TokenAuthentication])
+@permission_classes([IsAuthenticated])
+def auth_logout(request):
+    if request.auth:
+        request.auth.delete()
+    return Response({"detail": "Logged out."})
+
+
 @api_view(["GET"])
+@authentication_classes([TokenAuthentication])
+@permission_classes([AllowAny])
+def auth_me(request):
+    if not request.user or not request.user.is_authenticated:
+        return Response({"authenticated": False})
+    return Response(_serialize_user(request.user))
+
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
 def home(request):
     try:
         return Response(_build_home_payload())
@@ -215,6 +350,7 @@ def home(request):
 
 
 @api_view(["GET"])
+@permission_classes([AllowAny])
 def genres(request):
     try:
         return Response({"genres": _combined_genres()})
@@ -223,6 +359,7 @@ def genres(request):
 
 
 @api_view(["GET"])
+@permission_classes([AllowAny])
 def search_titles(request):
     query = request.query_params.get("query", "")
     media_type = request.query_params.get("media_type", "all")
@@ -241,6 +378,7 @@ def search_titles(request):
 
 
 @api_view(["GET"])
+@permission_classes([AllowAny])
 def title_details(request, media_type, tmdb_id):
     if media_type not in {"movie", "tv"}:
         return Response({"detail": "Invalid media type."}, status=400)
@@ -252,6 +390,8 @@ def title_details(request, media_type, tmdb_id):
 
 
 @api_view(["GET", "POST"])
+@authentication_classes([TokenAuthentication])
+@permission_classes([AllowAny])
 def title_reviews(request, media_type, tmdb_id):
     if media_type not in {"movie", "tv"}:
         return Response({"detail": "Invalid media type."}, status=400)
@@ -260,13 +400,15 @@ def title_reviews(request, media_type, tmdb_id):
         reviews = Review.objects.filter(media_type=media_type, tmdb_id=tmdb_id)
         return Response({"reviews": [_serialize_review(review) for review in reviews]})
 
-    author_name = str(request.data.get("author_name", "")).strip()
+    if not request.user or not request.user.is_authenticated:
+        return Response({"detail": "Sign in to post a review."}, status=401)
+
     title_snapshot = str(request.data.get("title_snapshot", "")).strip()
     content = str(request.data.get("content", "")).strip()
     rating = request.data.get("rating")
 
-    if not author_name or not title_snapshot or not content:
-        return Response({"detail": "Author, title, and review content are required."}, status=400)
+    if not title_snapshot or not content:
+        return Response({"detail": "Title and review content are required."}, status=400)
 
     try:
         rating = int(rating)
@@ -277,11 +419,220 @@ def title_reviews(request, media_type, tmdb_id):
         return Response({"detail": "Rating must be between 1 and 10."}, status=400)
 
     review = Review.objects.create(
+        user=request.user,
         media_type=media_type,
         tmdb_id=tmdb_id,
         title_snapshot=title_snapshot,
-        author_name=author_name,
+        author_name=request.user.username,
         rating=rating,
         content=content,
     )
     return Response(_serialize_review(review), status=201)
+
+
+@api_view(["GET", "POST"])
+@authentication_classes([TokenAuthentication])
+@permission_classes([IsAuthenticated])
+def favorites_collection(request):
+    if request.method == "GET":
+        favorites = Favorite.objects.filter(user=request.user)
+        return Response({"favorites": [_serialize_favorite(favorite) for favorite in favorites]})
+
+    media_type = str(request.data.get("media_type", "")).strip()
+    title = str(request.data.get("title", "")).strip()
+    poster_url = str(request.data.get("poster_url", "")).strip()
+    overview = str(request.data.get("overview", "")).strip()
+    year = str(request.data.get("year", "")).strip()
+    rating = request.data.get("rating", 0)
+    personal_rating = request.data.get("personal_rating")
+    watch_later = request.data.get("watch_later", False)
+    tmdb_id = request.data.get("tmdb_id")
+
+    if media_type not in {"movie", "tv"}:
+        return Response({"detail": "Invalid media type."}, status=400)
+    if not title:
+        return Response({"detail": "Title is required."}, status=400)
+
+    try:
+        tmdb_id = int(tmdb_id)
+    except (TypeError, ValueError):
+        return Response({"detail": "TMDb id must be an integer."}, status=400)
+
+    try:
+        rating = float(rating or 0)
+    except (TypeError, ValueError):
+        rating = 0
+
+    try:
+        watch_later = _coerce_bool(watch_later)
+    except ValueError:
+        return Response({"detail": "Watch later must be true or false."}, status=400)
+
+    if personal_rating in ("", None):
+        personal_rating = None
+    else:
+        try:
+            personal_rating = float(personal_rating)
+        except (TypeError, ValueError):
+            return Response({"detail": "Personal rating must be a number."}, status=400)
+
+        if personal_rating < 0.5 or personal_rating > 5:
+            return Response({"detail": "Personal rating must be between 0.5 and 5."}, status=400)
+        if (personal_rating * 2) % 1 != 0:
+            return Response({"detail": "Personal rating must use 0.5 steps."}, status=400)
+
+    favorite, created = Favorite.objects.get_or_create(
+        user=request.user,
+        media_type=media_type,
+        tmdb_id=tmdb_id,
+        defaults={
+            "title": title,
+            "poster_url": poster_url,
+            "overview": overview,
+            "year": year,
+            "rating": rating,
+            "personal_rating": personal_rating,
+            "watch_later": watch_later,
+        },
+    )
+
+    if not created:
+        favorite.title = title
+        favorite.poster_url = poster_url
+        favorite.overview = overview
+        favorite.year = year
+        favorite.rating = rating
+        favorite.personal_rating = personal_rating
+        favorite.watch_later = watch_later
+        favorite.save(update_fields=["title", "poster_url", "overview", "year", "rating", "personal_rating", "watch_later"])
+
+    return Response(_serialize_favorite(favorite), status=201 if created else 200)
+
+
+@api_view(["DELETE"])
+@authentication_classes([TokenAuthentication])
+@permission_classes([IsAuthenticated])
+def favorites_delete(request, favorite_id):
+    deleted, _ = Favorite.objects.filter(id=favorite_id, user=request.user).delete()
+    if not deleted:
+        return Response({"detail": "Favorite not found."}, status=404)
+    return Response(status=204)
+
+
+@api_view(["GET", "POST"])
+@authentication_classes([TokenAuthentication])
+@permission_classes([IsAuthenticated])
+def watchlists_collection(request):
+    if request.method == "GET":
+        watchlists = Watchlist.objects.filter(user=request.user).prefetch_related("items")
+        return Response({"watchlists": [_serialize_watchlist(watchlist) for watchlist in watchlists]})
+
+    try:
+        name = _require_string(request.data.get("name"), "Watchlist name")
+    except ValueError as exc:
+        return Response({"detail": str(exc)}, status=400)
+
+    if len(name) > 80:
+        return Response({"detail": "Watchlist name must be 80 characters or fewer."}, status=400)
+    if Watchlist.objects.filter(user=request.user, name__iexact=name).exists():
+        return Response({"detail": "A watchlist with that name already exists."}, status=400)
+
+    watchlist = Watchlist.objects.create(user=request.user, name=name)
+    watchlist = Watchlist.objects.filter(id=watchlist.id).prefetch_related("items").get()
+    return Response(_serialize_watchlist(watchlist), status=201)
+
+
+@api_view(["PATCH", "DELETE"])
+@authentication_classes([TokenAuthentication])
+@permission_classes([IsAuthenticated])
+def watchlist_detail(request, watchlist_id):
+    try:
+        watchlist = Watchlist.objects.prefetch_related("items").get(id=watchlist_id, user=request.user)
+    except Watchlist.DoesNotExist:
+        return Response({"detail": "Watchlist not found."}, status=404)
+
+    if request.method == "DELETE":
+        watchlist.delete()
+        return Response(status=204)
+
+    try:
+        name = _require_string(request.data.get("name"), "Watchlist name")
+    except ValueError as exc:
+        return Response({"detail": str(exc)}, status=400)
+
+    if len(name) > 80:
+        return Response({"detail": "Watchlist name must be 80 characters or fewer."}, status=400)
+    if Watchlist.objects.filter(user=request.user, name__iexact=name).exclude(id=watchlist.id).exists():
+        return Response({"detail": "A watchlist with that name already exists."}, status=400)
+
+    watchlist.name = name
+    watchlist.save(update_fields=["name", "updated_at"])
+    watchlist = Watchlist.objects.prefetch_related("items").get(id=watchlist.id)
+    return Response(_serialize_watchlist(watchlist))
+
+
+@api_view(["POST"])
+@authentication_classes([TokenAuthentication])
+@permission_classes([IsAuthenticated])
+def watchlist_items_collection(request, watchlist_id):
+    try:
+        watchlist = Watchlist.objects.prefetch_related("items").get(id=watchlist_id, user=request.user)
+    except Watchlist.DoesNotExist:
+        return Response({"detail": "Watchlist not found."}, status=404)
+
+    media_type = str(request.data.get("media_type", "")).strip()
+    title = str(request.data.get("title", "")).strip()
+    poster_url = str(request.data.get("poster_url", "")).strip()
+    overview = str(request.data.get("overview", "")).strip()
+    year = str(request.data.get("year", "")).strip()
+    rating = request.data.get("rating", 0)
+    tmdb_id = request.data.get("tmdb_id")
+
+    if media_type not in {"movie", "tv"}:
+        return Response({"detail": "Invalid media type."}, status=400)
+    if not title:
+        return Response({"detail": "Title is required."}, status=400)
+
+    try:
+        tmdb_id = int(tmdb_id)
+    except (TypeError, ValueError):
+        return Response({"detail": "TMDb id must be an integer."}, status=400)
+
+    try:
+        rating = float(rating or 0)
+    except (TypeError, ValueError):
+        rating = 0
+
+    item, created = WatchlistItem.objects.get_or_create(
+        watchlist=watchlist,
+        media_type=media_type,
+        tmdb_id=tmdb_id,
+        defaults={
+            "title": title,
+            "poster_url": poster_url,
+            "overview": overview,
+            "year": year,
+            "rating": rating,
+        },
+    )
+
+    if not created:
+        item.title = title
+        item.poster_url = poster_url
+        item.overview = overview
+        item.year = year
+        item.rating = rating
+        item.save(update_fields=["title", "poster_url", "overview", "year", "rating"])
+
+    watchlist = Watchlist.objects.filter(id=watchlist.id).prefetch_related("items").get()
+    return Response(_serialize_watchlist(watchlist), status=201 if created else 200)
+
+
+@api_view(["DELETE"])
+@authentication_classes([TokenAuthentication])
+@permission_classes([IsAuthenticated])
+def watchlist_item_delete(request, watchlist_id, item_id):
+    deleted, _ = WatchlistItem.objects.filter(id=item_id, watchlist_id=watchlist_id, watchlist__user=request.user).delete()
+    if not deleted:
+        return Response({"detail": "Watchlist item not found."}, status=404)
+    return Response(status=204)
