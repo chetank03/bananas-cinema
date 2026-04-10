@@ -146,13 +146,19 @@ export function DetailPanel({
                 </button>
                 <div className="favorite-rating-row">
                   <button className="favorite-button" type="button" onClick={handleSaveFavoriteClick} disabled={savingFavorite}>
-                    {savingFavorite ? "Saving..." : isFavorite(item) ? "Update watched" : "Mark watched"}
+                    {savingFavorite
+                      ? "Saving..."
+                      : favorite?.watch_later
+                        ? "Move to watched"
+                        : isFavorite(item)
+                          ? "Update watched"
+                          : "Mark watched"}
                   </button>
                   <button className="ghost-button" type="button" onClick={() => onOpenWatchlists(item)} disabled={savingFavorite}>
                     Add to watchlist
                   </button>
                   <button className="ghost-button" type="button" onClick={handleSaveWatchLaterClick} disabled={savingFavorite}>
-                    {favorite?.watch_later ? "In watch later" : "Watch later"}
+                    {favorite?.watch_later ? "In watch later" : isFavorite(item) ? "Move to watch later" : "Watch later"}
                   </button>
                   {isFavorite(item) ? (
                     <button className="ghost-button" type="button" onClick={() => onRemoveFavorite(item)}>

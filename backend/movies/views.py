@@ -69,7 +69,7 @@ def _normalize_title(item, fallback_media_type=None):
     }
 
 
-def _serialize_home_section(items, fallback_media_type=None, limit=12):
+def _serialize_home_section(items, fallback_media_type=None, limit=20):
     serialized = []
     for item in items:
         normalized = _normalize_title(item, fallback_media_type=fallback_media_type)
@@ -253,6 +253,7 @@ def _serialize_favorite(favorite):
         "rating": favorite.rating,
         "personal_rating": favorite.personal_rating,
         "watch_later": favorite.watch_later,
+        "created_at": favorite.created_at.isoformat(),
     }
 
 

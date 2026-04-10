@@ -19,6 +19,7 @@ import {
 } from "./api/movies";
 import { AuthModal } from "./components/AuthModal";
 import { DetailPanel } from "./components/DetailPanel";
+import { LibraryPage } from "./components/LibraryPage";
 import { MediaGrid } from "./components/MediaGrid";
 import { SearchPanel } from "./components/SearchPanel";
 import { WatchlistsModal } from "./components/WatchlistsModal";
@@ -51,7 +52,28 @@ function MoonIcon() {
 }
 
 function getCurrentPage() {
-  return window.location.pathname === "/watchlists" ? "watchlists" : "home";
+  if (window.location.pathname === "/watchlists") {
+    return "watchlists";
+  }
+  if (window.location.pathname === "/library") {
+    return "library";
+  }
+  return "home";
+}
+
+function favoriteToMediaItem(favorite) {
+  return {
+    id: favorite.tmdb_id,
+    media_type: favorite.media_type,
+    title: favorite.title,
+    year: favorite.year,
+    rating: favorite.rating,
+    personal_rating: favorite.personal_rating,
+    poster_url: favorite.poster_url,
+    overview: favorite.overview,
+    watch_later: favorite.watch_later,
+    created_at: favorite.created_at,
+  };
 }
 
 function App() {
@@ -78,6 +100,7 @@ function App() {
   const [watchlistsLoading, setWatchlistsLoading] = useState(false);
   const [watchlistsError, setWatchlistsError] = useState("");
   const [currentPage, setCurrentPage] = useState(getCurrentPage);
+  const [showBackToTop, setShowBackToTop] = useState(false);
   const { theme, toggleTheme } = useTheme();
 
   useEffect(() => {
@@ -113,6 +136,16 @@ function App() {
   }, []);
 
   useEffect(() => {
+    function handleScroll() {
+      setShowBackToTop(window.scrollY > 420);
+    }
+
+    handleScroll();
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  useEffect(() => {
     const shouldLockScroll = Boolean(selectedTitle || authOpen || watchlistsOpen);
     const { overflow } = document.body.style;
 
@@ -126,7 +159,7 @@ function App() {
   }, [selectedTitle, authOpen, watchlistsOpen]);
 
   useEffect(() => {
-    if (!user && currentPage === "watchlists") {
+    if (!user && (currentPage === "watchlists" || currentPage === "library")) {
       navigateTo("home");
     }
   }, [currentPage, user]);
@@ -226,11 +259,15 @@ function App() {
   }
 
   function navigateTo(page) {
-    const nextPath = page === "watchlists" ? "/watchlists" : "/";
+    const nextPath = page === "watchlists" ? "/watchlists" : page === "library" ? "/library" : "/";
     if (window.location.pathname !== nextPath) {
       window.history.pushState({}, "", nextPath);
     }
     setCurrentPage(page);
+  }
+
+  function scrollToTop() {
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function openWatchlists(item = null) {
@@ -334,8 +371,6 @@ function App() {
       throw new Error("Sign in to save favorites.");
     }
 
-    const existingFavorite = favoriteRecordFor(item);
-
     const favorite = await saveFavorite({
       tmdb_id: item.id,
       media_type: item.media_type,
@@ -345,7 +380,7 @@ function App() {
       year: item.year || "",
       rating: item.rating || 0,
       personal_rating: personalRating,
-      watch_later: existingFavorite?.watch_later || false,
+      watch_later: false,
     });
 
     setFavorites((current) => {
@@ -494,18 +529,7 @@ function App() {
       description: user
         ? "Titles you parked for the next free night."
         : "Sign in to build a watch later queue.",
-      items: watchLaterFavorites
-        .map((favorite) => ({
-          id: favorite.tmdb_id,
-          media_type: favorite.media_type,
-          title: favorite.title,
-          year: favorite.year,
-          rating: favorite.rating,
-          personal_rating: favorite.personal_rating,
-          poster_url: favorite.poster_url,
-          overview: favorite.overview,
-          watch_later: true,
-        })),
+      items: watchLaterFavorites.map(favoriteToMediaItem),
     },
     {
       key: "favorites",
@@ -513,17 +537,7 @@ function App() {
       description: user
         ? "Titles you've already watched and rated."
         : "Sign in to keep track of what you've watched.",
-      items: watchedFavorites.map((favorite) => ({
-        id: favorite.tmdb_id,
-        media_type: favorite.media_type,
-        title: favorite.title,
-        year: favorite.year,
-        rating: favorite.rating,
-        personal_rating: favorite.personal_rating,
-        poster_url: favorite.poster_url,
-        overview: favorite.overview,
-        watch_later: false,
-      })),
+      items: watchedFavorites.map(favoriteToMediaItem),
     },
     {
       key: "trending",
@@ -559,7 +573,7 @@ function App() {
       <header className="topbar">
         <div className="brand">
           <button className="brand-logo-wrap" type="button" onClick={() => navigateTo("home")} aria-label="Go to home">
-            <img className="brand-logo" src="/bananas-cinema-icon.png" alt="Bananas Cinema" />
+            <img className="brand-logo" src="/brand-mark.png" alt="Bananas Cinema" />
           </button>
         </div>
 
@@ -575,6 +589,9 @@ function App() {
           </button>
           {user ? (
             <>
+              <button className="ghost-button" type="button" onClick={() => navigateTo("library")}>
+                Library
+              </button>
               <button className="ghost-button" type="button" onClick={() => openWatchlists()}>
                 Watchlists
               </button>
@@ -612,6 +629,18 @@ function App() {
           onDeleteWatchlist={handleDeleteWatchlist}
           onRemoveItem={handleRemoveItemFromWatchlist}
           onOpenDetails={handleOpenDetails}
+        />
+      ) : currentPage === "library" ? (
+        <LibraryPage
+          user={user}
+          watchedItems={featuredCollections.find((section) => section.key === "favorites")?.items || []}
+          watchLaterItems={featuredCollections.find((section) => section.key === "watch_later")?.items || []}
+          onBack={() => navigateTo("home")}
+          onOpenDetails={handleOpenDetails}
+          onToggleFavorite={handleToggleFavorite}
+          onMoveToWatched={(item) => handleSaveFavorite(item, item.personal_rating ?? null)}
+          onMoveToWatchLater={handleSaveWatchLater}
+          isFavorite={isFavorite}
         />
       ) : (
         <>
@@ -692,6 +721,7 @@ function App() {
                   onToggleFavorite={handleToggleFavorite}
                   isFavorite={isFavorite}
                   compact={section.key === "favorites" || section.key === "watch_later"}
+                  slider
                 />
               </section>
             ))
@@ -739,6 +769,12 @@ function App() {
         loading={authLoading}
         error={authError}
       />
+
+      {currentPage === "home" && showBackToTop ? (
+        <button className="back-to-top-button" type="button" onClick={scrollToTop} aria-label="Back to top">
+          ↑
+        </button>
+      ) : null}
     </div>
   );
 }
