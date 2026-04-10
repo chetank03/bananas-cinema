@@ -56,6 +56,10 @@
   justify-content: center;
   width: 112px;
   height: 56px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
 }
 
 .brand-logo {
@@ -649,6 +653,112 @@
   box-shadow: var(--shadow-strong);
 }
 
+.watchlists-page {
+  display: grid;
+  gap: 22px;
+  margin-top: 10px;
+}
+
+.watchlists-page-heading {
+  margin-bottom: 0;
+}
+
+.watchlists-page h1 {
+  margin: 2px 0 0;
+  color: var(--text-primary);
+  font-size: clamp(2.4rem, 5vw, 4rem);
+  line-height: 0.94;
+  letter-spacing: -0.04em;
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+.watchlists-page-create {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  padding: 22px;
+  border-radius: 28px;
+  border: 1px solid var(--outline);
+  background: linear-gradient(180deg, var(--surface-strong), var(--surface));
+  box-shadow: var(--shadow-soft);
+}
+
+.watchlists-page-create .field {
+  margin-bottom: 0;
+}
+
+.watchlists-page-stack {
+  gap: 18px;
+}
+
+.watchlist-item-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px;
+  border-radius: 20px;
+  background: var(--surface);
+  border: 1px solid var(--outline);
+}
+
+.watchlist-item-main {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  flex: 1;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.watchlist-item-main:hover strong {
+  color: var(--accent);
+}
+
+.watchlist-item-poster {
+  width: 62px;
+  aspect-ratio: 2 / 3;
+  overflow: hidden;
+  flex-shrink: 0;
+  border-radius: 16px;
+  background: var(--poster-gradient);
+}
+
+.watchlist-item-poster img,
+.watchlist-item-poster-fallback {
+  width: 100%;
+  height: 100%;
+}
+
+.watchlist-item-poster img {
+  display: block;
+  object-fit: cover;
+}
+
+.watchlist-item-poster-fallback {
+  display: grid;
+  place-items: center;
+  color: var(--text-primary);
+  font-weight: 800;
+}
+
+.watchlist-item-copy {
+  min-width: 0;
+}
+
+.watchlist-item-copy strong {
+  display: block;
+}
+
+.watchlist-item-copy p {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+}
+
 .watchlist-create-form,
 .watchlists-stack,
 .watchlist-items {
@@ -925,5 +1035,18 @@
   .watchlist-rename-row {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .watchlists-page-create {
+    grid-template-columns: 1fr;
+  }
+
+  .watchlist-item-card {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .watchlist-item-main {
+    width: 100%;
   }
 }

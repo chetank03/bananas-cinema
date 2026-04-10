@@ -106,8 +106,7 @@ def _combined_genres():
 
 def _search_payload(query, media_type, genre, year):
     query = query.strip()
-    if not query:
-        return []
+    year = str(year).strip() if year else ""
 
     genre_id = None
     if genre:
@@ -116,15 +115,49 @@ def _search_payload(query, media_type, genre, year):
         except (TypeError, ValueError):
             raise TMDbError("Genre filter must be numeric.")
 
-    if media_type == "movie":
-        data = _tmdb_get("/search/movie", {"query": query, "include_adult": "false"})
-        items = data.get("results", [])
-    elif media_type == "tv":
-        data = _tmdb_get("/search/tv", {"query": query, "include_adult": "false"})
-        items = data.get("results", [])
+    has_non_default_filter = media_type in {"movie", "tv"} or bool(genre_id) or bool(year)
+    if not query and not has_non_default_filter:
+        return []
+
+    if query:
+        if media_type == "movie":
+            data = _tmdb_get("/search/movie", {"query": query, "include_adult": "false"})
+            items = data.get("results", [])
+        elif media_type == "tv":
+            data = _tmdb_get("/search/tv", {"query": query, "include_adult": "false"})
+            items = data.get("results", [])
+        else:
+            data = _tmdb_get("/search/multi", {"query": query, "include_adult": "false"})
+            items = data.get("results", [])
     else:
-        data = _tmdb_get("/search/multi", {"query": query, "include_adult": "false"})
-        items = data.get("results", [])
+        discover_params = {"include_adult": "false", "sort_by": "popularity.desc"}
+        if genre_id:
+            discover_params["with_genres"] = str(genre_id)
+
+        if media_type == "movie":
+            if year:
+                discover_params["primary_release_year"] = year
+            items = _tmdb_get("/discover/movie", discover_params).get("results", [])
+        elif media_type == "tv":
+            if year:
+                discover_params["first_air_date_year"] = year
+            items = _tmdb_get("/discover/tv", discover_params).get("results", [])
+        else:
+            movie_params = discover_params.copy()
+            tv_params = discover_params.copy()
+            if year:
+                movie_params["primary_release_year"] = year
+                tv_params["first_air_date_year"] = year
+            movie_items = _tmdb_get("/discover/movie", movie_params).get("results", [])
+            tv_items = _tmdb_get("/discover/tv", tv_params).get("results", [])
+            items = sorted(
+                [
+                    *[{**item, "media_type": "movie"} for item in movie_items],
+                    *[{**item, "media_type": "tv"} for item in tv_items],
+                ],
+                key=lambda item: item.get("popularity") or 0,
+                reverse=True,
+            )
 
     results = []
     for item in items:

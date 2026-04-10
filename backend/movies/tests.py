@@ -62,6 +62,64 @@ class MoviesApiTests(TestCase):
         self.assertEqual(response.json()["results"][0]["title"], "Arrival")
 
     @patch("movies.views._tmdb_get")
+    def test_search_filters_work_without_query(self, mock_tmdb_get):
+        mock_tmdb_get.return_value = {
+            "results": [
+                {
+                    "id": 11,
+                    "title": "Filtered Movie",
+                    "overview": "",
+                    "poster_path": "/poster.jpg",
+                    "backdrop_path": "/backdrop.jpg",
+                    "release_date": "2024-05-01",
+                    "vote_average": 7.4,
+                    "vote_count": 10,
+                    "genre_ids": [18],
+                    "popularity": 99,
+                }
+            ]
+        }
+
+        response = self.client.get("/api/search/?media_type=movie&genre=18&year=2024")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual(response.json()["results"][0]["title"], "Filtered Movie")
+        mock_tmdb_get.assert_called_once_with(
+            "/discover/movie",
+            {"include_adult": "false", "sort_by": "popularity.desc", "with_genres": "18", "primary_release_year": "2024"},
+        )
+
+    @patch("movies.views._tmdb_get")
+    def test_search_media_type_only_uses_discover(self, mock_tmdb_get):
+        mock_tmdb_get.return_value = {
+            "results": [
+                {
+                    "id": 22,
+                    "name": "Filtered Show",
+                    "overview": "",
+                    "poster_path": "/poster.jpg",
+                    "backdrop_path": "/backdrop.jpg",
+                    "first_air_date": "2023-09-01",
+                    "vote_average": 7.4,
+                    "vote_count": 10,
+                    "genre_ids": [18],
+                    "popularity": 99,
+                }
+            ]
+        }
+
+        response = self.client.get("/api/search/?media_type=tv")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual(response.json()["results"][0]["title"], "Filtered Show")
+        mock_tmdb_get.assert_called_once_with(
+            "/discover/tv",
+            {"include_adult": "false", "sort_by": "popularity.desc"},
+        )
+
+    @patch("movies.views._tmdb_get")
     def test_tv_title_details_handles_empty_episode_runtime(self, mock_tmdb_get):
         mock_tmdb_get.return_value = {
             "id": 1416,

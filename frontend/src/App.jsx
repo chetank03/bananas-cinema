@@ -22,6 +22,7 @@ import { DetailPanel } from "./components/DetailPanel";
 import { MediaGrid } from "./components/MediaGrid";
 import { SearchPanel } from "./components/SearchPanel";
 import { WatchlistsModal } from "./components/WatchlistsModal";
+import { WatchlistsPage } from "./components/WatchlistsPage";
 import { useTheme } from "./hooks/useTheme";
 import "./App.css";
 
@@ -49,6 +50,10 @@ function MoonIcon() {
   );
 }
 
+function getCurrentPage() {
+  return window.location.pathname === "/watchlists" ? "watchlists" : "home";
+}
+
 function App() {
   const [genres, setGenres] = useState([]);
   const [home, setHome] = useState(EMPTY_HOME);
@@ -72,6 +77,7 @@ function App() {
   const [watchlistTarget, setWatchlistTarget] = useState(null);
   const [watchlistsLoading, setWatchlistsLoading] = useState(false);
   const [watchlistsError, setWatchlistsError] = useState("");
+  const [currentPage, setCurrentPage] = useState(getCurrentPage);
   const { theme, toggleTheme } = useTheme();
 
   useEffect(() => {
@@ -98,6 +104,15 @@ function App() {
   }, []);
 
   useEffect(() => {
+    function handlePopState() {
+      setCurrentPage(getCurrentPage());
+    }
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  useEffect(() => {
     const shouldLockScroll = Boolean(selectedTitle || authOpen || watchlistsOpen);
     const { overflow } = document.body.style;
 
@@ -109,6 +124,12 @@ function App() {
       document.body.style.overflow = overflow;
     };
   }, [selectedTitle, authOpen, watchlistsOpen]);
+
+  useEffect(() => {
+    if (!user && currentPage === "watchlists") {
+      navigateTo("home");
+    }
+  }, [currentPage, user]);
 
   useEffect(() => {
     async function loadFavorites() {
@@ -204,9 +225,21 @@ function App() {
     setAuthOpen(true);
   }
 
+  function navigateTo(page) {
+    const nextPath = page === "watchlists" ? "/watchlists" : "/";
+    if (window.location.pathname !== nextPath) {
+      window.history.pushState({}, "", nextPath);
+    }
+    setCurrentPage(page);
+  }
+
   function openWatchlists(item = null) {
     if (!user) {
       openAuth("login");
+      return;
+    }
+    if (!item) {
+      navigateTo("watchlists");
       return;
     }
     setWatchlistTarget(item);
@@ -252,6 +285,7 @@ function App() {
       setFavorites([]);
       setWatchlists([]);
       closeWatchlists();
+      navigateTo("home");
     } catch (logoutError) {
       setError(logoutError.message);
     }
@@ -524,9 +558,9 @@ function App() {
 
       <header className="topbar">
         <div className="brand">
-          <div className="brand-logo-wrap">
+          <button className="brand-logo-wrap" type="button" onClick={() => navigateTo("home")} aria-label="Go to home">
             <img className="brand-logo" src="/bananas-cinema-icon.png" alt="Bananas Cinema" />
-          </div>
+          </button>
         </div>
 
         <div className="topbar-actions">
@@ -562,88 +596,107 @@ function App() {
         </div>
       </header>
 
-      <section className="hero">
-        <div className="hero-copy">
-          <p className="eyebrow">Bananas Cinema</p>
-          <h1>Find the next film or series worth staying up for.</h1>
-          <p className="hero-text">
-            Search movie and TV data, mark what you have watched, park titles for later, build watchlists, and post
-            reviews as a signed-in user.
-          </p>
-          <div className="hero-stats">
-            <div>
-              <span>{home.trending.length || "--"}</span>
-              <p>Trending picks</p>
-            </div>
-            <div>
-              <span>{watchedFavorites.length}</span>
-              <p>{user ? "Marked watched" : "Tracked after login"}</p>
-            </div>
-            <div>
-              <span>{genres.length || "--"}</span>
-              <p>Genres loaded</p>
-            </div>
-          </div>
-        </div>
-
-        <SearchPanel initialValues={queryState} genres={genres} onSearch={handleSearch} searching={searching} />
-      </section>
-
       {error ? <div className="status-banner error">{error}</div> : null}
       {loadingHome ? <div className="status-banner">Loading Bananas Cinema...</div> : null}
       {loadingDetails ? <div className="status-banner">Loading title details...</div> : null}
 
-      {searched ? (
-        <section className="content-section">
-          <div className="section-heading">
-            <div className="section-copy">
-              <p className="section-label">Search Results</p>
-              <h2>
-                {results.length ? `${results.length} match${results.length === 1 ? "" : "es"} found` : "No results"}
-              </h2>
-              <p className="section-description">Refine by title, genre, media type, or release year.</p>
-            </div>
-            <button className="ghost-button" type="button" onClick={() => setSearched(false)}>
-              Back to featured sections
-            </button>
-          </div>
-
-          <MediaGrid
-            items={results}
-            emptyMessage="Try a different title, genre, or year filter."
-            onOpenDetails={handleOpenDetails}
-            onToggleFavorite={handleToggleFavorite}
-            isFavorite={isFavorite}
-          />
-        </section>
+      {currentPage === "watchlists" ? (
+        <WatchlistsPage
+          user={user}
+          watchlists={watchlists}
+          loading={watchlistsLoading}
+          error={watchlistsError}
+          onBack={() => navigateTo("home")}
+          onCreateWatchlist={handleCreateWatchlist}
+          onRenameWatchlist={handleRenameWatchlist}
+          onDeleteWatchlist={handleDeleteWatchlist}
+          onRemoveItem={handleRemoveItemFromWatchlist}
+          onOpenDetails={handleOpenDetails}
+        />
       ) : (
-        featuredCollections.map((section) => (
-          <section className="content-section" key={section.key}>
-            <div className="section-heading">
-              <div className="section-copy">
-                <p className="section-label">{section.key === "favorites" || section.key === "watch_later" ? "Your List" : "Featured"}</p>
-                <h2>{section.title}</h2>
-                <p className="section-description">{section.description}</p>
+        <>
+          <section className="hero">
+            <div className="hero-copy">
+              <p className="eyebrow">Bananas Cinema</p>
+              <h1>Find the next film or series worth staying up for.</h1>
+              <p className="hero-text">
+                Search movie and TV data, mark what you have watched, park titles for later, build watchlists, and post
+                reviews as a signed-in user.
+              </p>
+              <div className="hero-stats">
+                <div>
+                  <span>{home.trending.length || "--"}</span>
+                  <p>Trending picks</p>
+                </div>
+                <div>
+                  <span>{watchedFavorites.length}</span>
+                  <p>{user ? "Marked watched" : "Tracked after login"}</p>
+                </div>
+                <div>
+                  <span>{genres.length || "--"}</span>
+                  <p>Genres loaded</p>
+                </div>
               </div>
             </div>
-            <MediaGrid
-              items={section.items}
-              emptyMessage={
-                section.key === "favorites" || section.key === "watch_later"
-                  ? user
-                    ? section.key === "watch_later"
-                      ? "Mark a few titles as watch later and they will show up here."
-                      : "Mark a few titles as watched and they will show up here."
-                    : "Sign in to save titles to your account."
-                  : "Nothing to show yet."
-              }
-              onOpenDetails={handleOpenDetails}
-              onToggleFavorite={handleToggleFavorite}
-              isFavorite={isFavorite}
-              compact={section.key === "favorites" || section.key === "watch_later"}
-            />
+
+            <SearchPanel initialValues={queryState} genres={genres} onSearch={handleSearch} searching={searching} />
           </section>
-        ))
+
+          {searched ? (
+            <section className="content-section">
+              <div className="section-heading">
+                <div className="section-copy">
+                  <p className="section-label">Search Results</p>
+                  <h2>
+                    {results.length ? `${results.length} match${results.length === 1 ? "" : "es"} found` : "No results"}
+                  </h2>
+                  <p className="section-description">Refine by title, genre, media type, or release year.</p>
+                </div>
+                <button className="ghost-button" type="button" onClick={() => setSearched(false)}>
+                  Back to featured sections
+                </button>
+              </div>
+
+              <MediaGrid
+                items={results}
+                emptyMessage="Try a different title, genre, or year filter."
+                onOpenDetails={handleOpenDetails}
+                onToggleFavorite={handleToggleFavorite}
+                isFavorite={isFavorite}
+              />
+            </section>
+          ) : (
+            featuredCollections.map((section) => (
+              <section className="content-section" key={section.key}>
+                <div className="section-heading">
+                  <div className="section-copy">
+                    <p className="section-label">
+                      {section.key === "favorites" || section.key === "watch_later" ? "Your List" : "Featured"}
+                    </p>
+                    <h2>{section.title}</h2>
+                    <p className="section-description">{section.description}</p>
+                  </div>
+                </div>
+                <MediaGrid
+                  items={section.items}
+                  emptyMessage={
+                    section.key === "favorites" || section.key === "watch_later"
+                      ? user
+                        ? section.key === "watch_later"
+                          ? "Mark a few titles as watch later and they will show up here."
+                          : "Mark a few titles as watched and they will show up here."
+                        : "Sign in to save titles to your account."
+                      : "Nothing to show yet."
+                  }
+                  onOpenDetails={handleOpenDetails}
+                  onToggleFavorite={handleToggleFavorite}
+                  isFavorite={isFavorite}
+                  compact={section.key === "favorites" || section.key === "watch_later"}
+                />
+              </section>
+            ))
+          )}
+        </>
       )}
 
       <DetailPanel
