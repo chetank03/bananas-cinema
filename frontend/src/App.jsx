@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { fetchCurrentUser, login, logout, signup } from "./api/auth";
 import {
   addWatchlistItem,
@@ -82,12 +82,14 @@ function App() {
   const [favorites, setFavorites] = useState([]);
   const [watchlists, setWatchlists] = useState([]);
   const [results, setResults] = useState([]);
+  const [searchPage, setSearchPage] = useState(1);
+  const [hasMoreResults, setHasMoreResults] = useState(false);
+  const [loadingMoreResults, setLoadingMoreResults] = useState(false);
   const [selectedTitle, setSelectedTitle] = useState(null);
   const [selectedReviews, setSelectedReviews] = useState([]);
   const [queryState, setQueryState] = useState({ query: "", media_type: "all", genre: "", year: "" });
   const [user, setUser] = useState(null);
   const [loadingHome, setLoadingHome] = useState(true);
-  const [searching, setSearching] = useState(false);
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [authLoading, setAuthLoading] = useState(false);
   const [error, setError] = useState("");
@@ -101,18 +103,22 @@ function App() {
   const [watchlistsError, setWatchlistsError] = useState("");
   const [currentPage, setCurrentPage] = useState(getCurrentPage);
   const [showBackToTop, setShowBackToTop] = useState(false);
+  const [topbarScrolled, setTopbarScrolled] = useState(false);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const { theme, toggleTheme } = useTheme();
+  const latestSearchRequestRef = useRef(0);
+  const accountMenuRef = useRef(null);
 
   useEffect(() => {
     async function bootstrap() {
       try {
-        const [homeData, genreData, meData] = await Promise.all([
+        const [homeData, genresData, meData] = await Promise.all([
           fetchHome(),
           fetchGenres(),
           fetchCurrentUser().catch(() => ({ authenticated: false })),
         ]);
         setHome(homeData);
-        setGenres(genreData.genres);
+        setGenres(genresData.genres || []);
         if (meData.authenticated) {
           setUser(meData.user);
         }
@@ -138,11 +144,23 @@ function App() {
   useEffect(() => {
     function handleScroll() {
       setShowBackToTop(window.scrollY > 420);
+      setTopbarScrolled(window.scrollY > 18);
     }
 
     handleScroll();
     window.addEventListener("scroll", handleScroll, { passive: true });
     return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  useEffect(() => {
+    function handlePointerDown(event) {
+      if (accountMenuRef.current && !accountMenuRef.current.contains(event.target)) {
+        setAccountMenuOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
   }, []);
 
   useEffect(() => {
@@ -198,8 +216,9 @@ function App() {
     loadWatchlists();
   }, [user]);
 
-  async function handleSearch(nextQueryState) {
-    setSearching(true);
+  async function handleSearch(nextQueryState, options = {}) {
+    const page = options.page ?? 1;
+    const append = options.append ?? false;
     setError("");
     setQueryState(nextQueryState);
     const hasActiveSearch =
@@ -207,15 +226,43 @@ function App() {
       Boolean(nextQueryState.genre) ||
       Boolean(nextQueryState.year) ||
       nextQueryState.media_type !== "all";
+
+    if (!hasActiveSearch) {
+      setResults([]);
+      setSearchPage(1);
+      setHasMoreResults(false);
+      setSearched(false);
+      return;
+    }
+
+    const requestId = latestSearchRequestRef.current + 1;
+    latestSearchRequestRef.current = requestId;
+    if (append) {
+      setLoadingMoreResults(true);
+    }
+
     try {
-      const data = await searchTitles(nextQueryState);
-      setResults(data.results);
+      const data = await searchTitles({ ...nextQueryState, page });
+      if (latestSearchRequestRef.current !== requestId) {
+        return;
+      }
+      setResults((current) => (append ? [...current, ...data.results] : data.results));
+      setSearchPage(data.page);
+      setHasMoreResults(Boolean(data.has_more));
       setSearched(hasActiveSearch);
     } catch (searchError) {
-      setError(searchError.message);
+      if (latestSearchRequestRef.current === requestId) {
+        setError(searchError.message);
+      }
     } finally {
-      setSearching(false);
+      if (latestSearchRequestRef.current === requestId) {
+        setLoadingMoreResults(false);
+      }
     }
+  }
+
+  function handleLoadMoreResults() {
+    handleSearch(queryState, { page: searchPage + 1, append: true });
   }
 
   async function handleOpenDetails(item) {
@@ -318,6 +365,7 @@ function App() {
     setError("");
     try {
       await logout();
+      setAccountMenuOpen(false);
       setUser(null);
       setFavorites([]);
       setWatchlists([]);
@@ -570,46 +618,71 @@ function App() {
       <div className="backdrop-glow backdrop-glow-left" />
       <div className="backdrop-glow backdrop-glow-right" />
 
-      <header className="topbar">
-        <div className="brand">
-          <button className="brand-logo-wrap" type="button" onClick={() => navigateTo("home")} aria-label="Go to home">
-            <img className="brand-logo" src="/brand-mark.png" alt="Bananas Cinema" />
-          </button>
-        </div>
+      <header className={`topbar${topbarScrolled ? " topbar-scrolled" : ""}`}>
+        <div className="topbar-main">
+          <div className="brand">
+            <button className="brand-logo-wrap" type="button" onClick={() => navigateTo("home")} aria-label="Go to home">
+              <img className="brand-logo" src="/brand-mark.png" alt="Bananas Cinema" />
+            </button>
+          </div>
 
-        <div className="topbar-actions">
-          <button
-            className="ghost-button theme-toggle"
-            type="button"
-            onClick={toggleTheme}
-            aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-            title={theme === "dark" ? "Light mode" : "Dark mode"}
-          >
-            {theme === "dark" ? <SunIcon /> : <MoonIcon />}
-          </button>
-          {user ? (
-            <>
-              <button className="ghost-button" type="button" onClick={() => navigateTo("library")}>
-                Library
-              </button>
-              <button className="ghost-button" type="button" onClick={() => openWatchlists()}>
-                Watchlists
-              </button>
-              <div className="user-badge">{user.username}</div>
-              <button className="ghost-button" type="button" onClick={handleLogout}>
-                Logout
-              </button>
-            </>
-          ) : (
-            <>
-              <button className="ghost-button" type="button" onClick={() => openAuth("login")}>
-                Sign in
-              </button>
-              <button className="primary-button" type="button" onClick={() => openAuth("signup")}>
-                Create account
-              </button>
-            </>
-          )}
+          {currentPage === "home" ? (
+            <div className="topbar-search">
+              <SearchPanel initialValues={queryState} genres={genres} onSearch={handleSearch} />
+            </div>
+          ) : null}
+
+          <div className="topbar-actions">
+            <button
+              className="ghost-button theme-toggle"
+              type="button"
+              onClick={toggleTheme}
+              aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+              title={theme === "dark" ? "Light mode" : "Dark mode"}
+            >
+              {theme === "dark" ? <SunIcon /> : <MoonIcon />}
+            </button>
+            {user ? (
+              <>
+                <button className="ghost-button" type="button" onClick={() => navigateTo("library")}>
+                  Library
+                </button>
+                <button className="ghost-button" type="button" onClick={() => openWatchlists()}>
+                  Watchlists
+                </button>
+                <div className={`account-menu${accountMenuOpen ? " account-menu-open" : ""}`} ref={accountMenuRef}>
+                  <button
+                    className="user-badge"
+                    type="button"
+                    onClick={() => setAccountMenuOpen((current) => !current)}
+                    aria-haspopup="menu"
+                    aria-expanded={accountMenuOpen}
+                  >
+                    <span>{user.username}</span>
+                    <span className="account-menu-caret" aria-hidden="true">
+                      ▾
+                    </span>
+                  </button>
+                  {accountMenuOpen ? (
+                    <div className="account-menu-panel" role="menu">
+                      <button className="account-menu-item" type="button" role="menuitem" onClick={handleLogout}>
+                        Logout
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              </>
+            ) : (
+              <>
+                <button className="ghost-button" type="button" onClick={() => openAuth("login")}>
+                  Sign in
+                </button>
+                <button className="primary-button" type="button" onClick={() => openAuth("signup")}>
+                  Create account
+                </button>
+              </>
+            )}
+          </div>
         </div>
       </header>
 
@@ -644,48 +717,8 @@ function App() {
         />
       ) : (
         <>
-          <section className="hero">
-            <div className="hero-copy">
-              <p className="eyebrow">Bananas Cinema</p>
-              <h1>Find the next film or series worth staying up for.</h1>
-              <p className="hero-text">
-                Search movie and TV data, mark what you have watched, park titles for later, build watchlists, and post
-                reviews as a signed-in user.
-              </p>
-              <div className="hero-stats">
-                <div>
-                  <span>{home.trending.length || "--"}</span>
-                  <p>Trending picks</p>
-                </div>
-                <div>
-                  <span>{watchedFavorites.length}</span>
-                  <p>{user ? "Marked watched" : "Tracked after login"}</p>
-                </div>
-                <div>
-                  <span>{genres.length || "--"}</span>
-                  <p>Genres loaded</p>
-                </div>
-              </div>
-            </div>
-
-            <SearchPanel initialValues={queryState} genres={genres} onSearch={handleSearch} searching={searching} />
-          </section>
-
           {searched ? (
             <section className="content-section">
-              <div className="section-heading">
-                <div className="section-copy">
-                  <p className="section-label">Search Results</p>
-                  <h2>
-                    {results.length ? `${results.length} match${results.length === 1 ? "" : "es"} found` : "No results"}
-                  </h2>
-                  <p className="section-description">Refine by title, genre, media type, or release year.</p>
-                </div>
-                <button className="ghost-button" type="button" onClick={() => setSearched(false)}>
-                  Back to featured sections
-                </button>
-              </div>
-
               <MediaGrid
                 items={results}
                 emptyMessage="Try a different title, genre, or year filter."
@@ -693,6 +726,18 @@ function App() {
                 onToggleFavorite={handleToggleFavorite}
                 isFavorite={isFavorite}
               />
+              {hasMoreResults ? (
+                <div className="search-results-actions">
+                  <button
+                    className="ghost-button"
+                    type="button"
+                    onClick={handleLoadMoreResults}
+                    disabled={loadingMoreResults}
+                  >
+                    {loadingMoreResults ? "Loading..." : "Load more"}
+                  </button>
+                </div>
+              ) : null}
             </section>
           ) : (
             featuredCollections.map((section) => (

@@ -41,25 +41,33 @@ class MoviesApiTests(TestCase):
 
     @patch("movies.views._search_payload")
     def test_search_endpoint(self, mock_search_payload):
-        mock_search_payload.return_value = [
-            {
-                "id": 1,
-                "media_type": "movie",
-                "title": "Arrival",
-                "overview": "",
-                "poster_url": "",
-                "backdrop_url": "",
-                "release_date": "2016-11-11",
-                "year": "2016",
-                "rating": 7.9,
-                "vote_count": 100,
-                "genre_ids": [18],
-            }
-        ]
+        mock_search_payload.return_value = {
+            "results": [
+                {
+                    "id": 1,
+                    "media_type": "movie",
+                    "title": "Arrival",
+                    "overview": "",
+                    "poster_url": "",
+                    "backdrop_url": "",
+                    "release_date": "2016-11-11",
+                    "year": "2016",
+                    "rating": 7.9,
+                    "vote_count": 100,
+                    "genre_ids": [18],
+                }
+            ],
+            "page": 1,
+            "page_size": 20,
+            "has_more": False,
+        }
 
         response = self.client.get("/api/search/?query=arrival&media_type=movie")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["results"][0]["title"], "Arrival")
+        self.assertEqual(response.json()["page"], 1)
+        self.assertFalse(response.json()["has_more"])
+        mock_search_payload.assert_called_once_with("arrival", "movie", None, None, page=1)
 
     @patch("movies.views._tmdb_get")
     def test_search_filters_work_without_query(self, mock_tmdb_get):
@@ -85,9 +93,17 @@ class MoviesApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.json()["results"]), 1)
         self.assertEqual(response.json()["results"][0]["title"], "Filtered Movie")
+        self.assertEqual(response.json()["page"], 1)
+        self.assertFalse(response.json()["has_more"])
         mock_tmdb_get.assert_called_once_with(
             "/discover/movie",
-            {"include_adult": "false", "sort_by": "popularity.desc", "with_genres": "18", "primary_release_year": "2024"},
+            {
+                "include_adult": "false",
+                "sort_by": "popularity.desc",
+                "page": 1,
+                "with_genres": "18",
+                "primary_release_year": "2024",
+            },
         )
 
     @patch("movies.views._tmdb_get")
@@ -114,9 +130,41 @@ class MoviesApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.json()["results"]), 1)
         self.assertEqual(response.json()["results"][0]["title"], "Filtered Show")
+        self.assertEqual(response.json()["page"], 1)
+        self.assertFalse(response.json()["has_more"])
         mock_tmdb_get.assert_called_once_with(
             "/discover/tv",
-            {"include_adult": "false", "sort_by": "popularity.desc"},
+            {"include_adult": "false", "sort_by": "popularity.desc", "page": 1},
+        )
+
+    @patch("movies.views._tmdb_get")
+    def test_search_pagination_uses_requested_page(self, mock_tmdb_get):
+        mock_tmdb_get.return_value = {
+            "results": [
+                {
+                    "id": 77,
+                    "title": "Paged Movie",
+                    "overview": "",
+                    "poster_path": "/poster.jpg",
+                    "backdrop_path": "/backdrop.jpg",
+                    "release_date": "2025-03-01",
+                    "vote_average": 7.8,
+                    "vote_count": 10,
+                    "genre_ids": [18],
+                    "popularity": 99,
+                }
+            ],
+            "total_pages": 3,
+        }
+
+        response = self.client.get("/api/search/?query=paged&media_type=movie&page=2")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["page"], 2)
+        self.assertTrue(response.json()["has_more"])
+        mock_tmdb_get.assert_called_once_with(
+            "/search/movie",
+            {"query": "paged", "include_adult": "false", "page": 2},
         )
 
     @patch("movies.views._tmdb_get")

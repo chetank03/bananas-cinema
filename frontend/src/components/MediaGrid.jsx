@@ -21,6 +21,9 @@ export function MediaGrid({
 }) {
   const sliderRef = useRef(null);
   const animationFrameRef = useRef(null);
+  const loopReadyRef = useRef(false);
+  const firstCardRef = useRef(null);
+  const [loopEnabled, setLoopEnabled] = useState(false);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
 
@@ -37,17 +40,86 @@ export function MediaGrid({
       return undefined;
     }
 
+    function updateLoopMode() {
+      if (!sliderRef.current || !firstCardRef.current) {
+        return;
+      }
+
+      const trackStyles = window.getComputedStyle(sliderRef.current);
+      const columnGap = Number.parseFloat(trackStyles.columnGap || trackStyles.gap || "0") || 0;
+      const cardWidth = firstCardRef.current.getBoundingClientRect().width;
+      const originalContentWidth = cardWidth * items.length + columnGap * Math.max(0, items.length - 1);
+      const shouldLoop = items.length > 1 && originalContentWidth - sliderRef.current.clientWidth > 4;
+
+      setLoopEnabled((current) => (current !== shouldLoop ? shouldLoop : current));
+    }
+
+    updateLoopMode();
+    window.addEventListener("resize", updateLoopMode);
+
+    let resizeObserver;
+    if ("ResizeObserver" in window) {
+      resizeObserver = new ResizeObserver(updateLoopMode);
+      if (sliderRef.current) {
+        resizeObserver.observe(sliderRef.current);
+      }
+      if (firstCardRef.current) {
+        resizeObserver.observe(firstCardRef.current);
+      }
+    }
+
+    return () => {
+      window.removeEventListener("resize", updateLoopMode);
+      resizeObserver?.disconnect();
+    };
+  }, [items, slider]);
+
+  useEffect(() => {
+    if (!slider) {
+      return undefined;
+    }
+
+    loopReadyRef.current = false;
+
+    function recenterLoop(force = false) {
+      if (!sliderRef.current || !loopEnabled || items.length < 2) {
+        return;
+      }
+
+      const segmentWidth = sliderRef.current.scrollWidth / 3;
+      if (!segmentWidth) {
+        return;
+      }
+
+      if (force && !loopReadyRef.current) {
+        sliderRef.current.scrollLeft = segmentWidth;
+        loopReadyRef.current = true;
+        return;
+      }
+
+      const { scrollLeft } = sliderRef.current;
+      if (scrollLeft < segmentWidth * 0.5) {
+        sliderRef.current.scrollLeft = scrollLeft + segmentWidth;
+      } else if (scrollLeft > segmentWidth * 1.5) {
+        sliderRef.current.scrollLeft = scrollLeft - segmentWidth;
+      }
+    }
+
     function updateScrollState() {
       if (!sliderRef.current) {
         return;
       }
 
-      const { scrollLeft, scrollWidth, clientWidth } = sliderRef.current;
-      const maxScrollLeft = Math.max(0, scrollWidth - clientWidth);
-      setCanScrollLeft(scrollLeft > 4);
-      setCanScrollRight(scrollLeft < maxScrollLeft - 4);
+      recenterLoop();
+      const { scrollWidth, clientWidth } = sliderRef.current;
+      const isScrollable = scrollWidth - clientWidth > 4;
+      setCanScrollLeft(isScrollable);
+      setCanScrollRight(isScrollable);
     }
 
+    if (loopEnabled) {
+      recenterLoop(true);
+    }
     updateScrollState();
 
     const track = sliderRef.current;
@@ -65,7 +137,7 @@ export function MediaGrid({
       window.removeEventListener("resize", updateScrollState);
       resizeObserver?.disconnect();
     };
-  }, [items, slider]);
+  }, [items, slider, loopEnabled]);
 
   if (!items.length) {
     return <div className="empty-state">{emptyMessage}</div>;
@@ -87,9 +159,9 @@ export function MediaGrid({
     const step = cardWidth + columnGap;
     const visibleCards = Math.max(1, Math.floor(sliderRef.current.clientWidth / step));
     const cardsPerJump = Math.max(2, visibleCards - 1);
-    const maxScrollLeft = Math.max(0, sliderRef.current.scrollWidth - sliderRef.current.clientWidth);
-    const targetLeft = Math.max(0, Math.min(maxScrollLeft, sliderRef.current.scrollLeft + direction * step * cardsPerJump));
     const startLeft = sliderRef.current.scrollLeft;
+    const targetLeft = startLeft + direction * step * cardsPerJump;
+
     const distance = targetLeft - startLeft;
 
     if (Math.abs(distance) < 2) {
@@ -134,10 +206,11 @@ export function MediaGrid({
   const cardClassName = `media-card${compact ? " media-card-compact" : ""}${slider ? " media-card-slider" : ""}`;
   const posterClassName = `media-poster${compact ? " media-poster-compact" : ""}`;
   const bodyClassName = `media-body${compact ? " media-body-compact" : ""}`;
-  const renderCard = (item) => (
+  const renderCard = (item, key, isMeasureCard = false) => (
     <article
       className={cardClassName}
-      key={`${item.media_type}-${item.id}`}
+      key={key}
+      ref={isMeasureCard ? firstCardRef : null}
       role="button"
       tabIndex={0}
       onClick={() => onOpenDetails(item)}
@@ -196,6 +269,16 @@ export function MediaGrid({
     </article>
   );
 
+  const renderedItems = slider && loopEnabled ? [0, 1, 2].flatMap((copyIndex) =>
+    items.map((item) => ({
+      item,
+      key: `${copyIndex}-${item.media_type}-${item.id}`,
+    })),
+  ) : items.map((item) => ({
+    item,
+    key: `0-${item.media_type}-${item.id}`,
+  }));
+
   if (slider) {
     return (
       <div className="media-slider-shell">
@@ -205,7 +288,7 @@ export function MediaGrid({
           </button>
         ) : null}
         <div className="media-slider-track" ref={sliderRef}>
-          {items.map((item) => renderCard(item))}
+          {renderedItems.map(({ item, key }, index) => renderCard(item, key, index === 0))}
         </div>
         {canScrollRight ? (
           <button className="slider-button slider-button-right" type="button" onClick={() => scrollSlider(1)} aria-label="Scroll right">
@@ -218,7 +301,7 @@ export function MediaGrid({
 
   return (
     <div className={`media-grid${compact ? " media-grid-compact" : ""}`}>
-      {items.map((item) => renderCard(item))}
+      {renderedItems.map(({ item, key }) => renderCard(item, key))}
     </div>
   );
 }

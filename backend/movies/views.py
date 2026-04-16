@@ -17,6 +17,9 @@ class TMDbError(Exception):
     pass
 
 
+SEARCH_PAGE_SIZE = 20
+
+
 def _tmdb_get(path, params=None):
     if not settings.TMDB_API_KEY:
         raise TMDbError("TMDB_API_KEY is not configured.")
@@ -104,7 +107,7 @@ def _combined_genres():
     return list(merged.values())
 
 
-def _search_payload(query, media_type, genre, year):
+def _search_payload(query, media_type, genre, year, page=1):
     query = query.strip()
     year = str(year).strip() if year else ""
 
@@ -115,41 +118,61 @@ def _search_payload(query, media_type, genre, year):
         except (TypeError, ValueError):
             raise TMDbError("Genre filter must be numeric.")
 
+    try:
+        page = int(page)
+    except (TypeError, ValueError):
+        raise TMDbError("Page must be numeric.")
+    if page < 1:
+        raise TMDbError("Page must be greater than 0.")
+
     has_non_default_filter = media_type in {"movie", "tv"} or bool(genre_id) or bool(year)
     if not query and not has_non_default_filter:
-        return []
-
+        return {
+            "results": [],
+            "page": page,
+            "page_size": SEARCH_PAGE_SIZE,
+            "has_more": False,
+        }
     if query:
         if media_type == "movie":
-            data = _tmdb_get("/search/movie", {"query": query, "include_adult": "false"})
+            data = _tmdb_get("/search/movie", {"query": query, "include_adult": "false", "page": page})
             items = data.get("results", [])
+            total_pages = data.get("total_pages") or 1
         elif media_type == "tv":
-            data = _tmdb_get("/search/tv", {"query": query, "include_adult": "false"})
+            data = _tmdb_get("/search/tv", {"query": query, "include_adult": "false", "page": page})
             items = data.get("results", [])
+            total_pages = data.get("total_pages") or 1
         else:
-            data = _tmdb_get("/search/multi", {"query": query, "include_adult": "false"})
+            data = _tmdb_get("/search/multi", {"query": query, "include_adult": "false", "page": page})
             items = data.get("results", [])
+            total_pages = data.get("total_pages") or 1
     else:
-        discover_params = {"include_adult": "false", "sort_by": "popularity.desc"}
+        discover_params = {"include_adult": "false", "sort_by": "popularity.desc", "page": page}
         if genre_id:
             discover_params["with_genres"] = str(genre_id)
 
         if media_type == "movie":
             if year:
                 discover_params["primary_release_year"] = year
-            items = _tmdb_get("/discover/movie", discover_params).get("results", [])
+            data = _tmdb_get("/discover/movie", discover_params)
+            items = data.get("results", [])
+            total_pages = data.get("total_pages") or 1
         elif media_type == "tv":
             if year:
                 discover_params["first_air_date_year"] = year
-            items = _tmdb_get("/discover/tv", discover_params).get("results", [])
+            data = _tmdb_get("/discover/tv", discover_params)
+            items = data.get("results", [])
+            total_pages = data.get("total_pages") or 1
         else:
             movie_params = discover_params.copy()
             tv_params = discover_params.copy()
             if year:
                 movie_params["primary_release_year"] = year
                 tv_params["first_air_date_year"] = year
-            movie_items = _tmdb_get("/discover/movie", movie_params).get("results", [])
-            tv_items = _tmdb_get("/discover/tv", tv_params).get("results", [])
+            movie_data = _tmdb_get("/discover/movie", movie_params)
+            tv_data = _tmdb_get("/discover/tv", tv_params)
+            movie_items = movie_data.get("results", [])
+            tv_items = tv_data.get("results", [])
             items = sorted(
                 [
                     *[{**item, "media_type": "movie"} for item in movie_items],
@@ -158,6 +181,7 @@ def _search_payload(query, media_type, genre, year):
                 key=lambda item: item.get("popularity") or 0,
                 reverse=True,
             )
+            total_pages = max(movie_data.get("total_pages") or 1, tv_data.get("total_pages") or 1)
 
     results = []
     for item in items:
@@ -170,7 +194,15 @@ def _search_payload(query, media_type, genre, year):
             continue
         results.append(normalized)
 
-    return results[:18]
+    paged_results = results[:SEARCH_PAGE_SIZE]
+    has_more = page < total_pages
+
+    return {
+        "results": paged_results,
+        "page": page,
+        "page_size": SEARCH_PAGE_SIZE,
+        "has_more": has_more,
+    }
 
 
 def _trailer_url(videos):
@@ -399,16 +431,24 @@ def search_titles(request):
     media_type = request.query_params.get("media_type", "all")
     genre = request.query_params.get("genre")
     year = request.query_params.get("year")
+    page = request.query_params.get("page", "1")
 
     if media_type not in {"all", "movie", "tv"}:
         return Response({"detail": "Invalid media_type."}, status=400)
 
     try:
-        results = _search_payload(query, media_type, genre, year)
+        page = int(page)
+    except (TypeError, ValueError):
+        return Response({"detail": "Invalid page."}, status=400)
+    if page < 1:
+        return Response({"detail": "Invalid page."}, status=400)
+
+    try:
+        payload = _search_payload(query, media_type, genre, year, page=page)
     except TMDbError as exc:
         return Response({"detail": str(exc)}, status=503)
 
-    return Response({"results": results})
+    return Response(payload)
 
 
 @api_view(["GET"])

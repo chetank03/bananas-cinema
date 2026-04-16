@@ -1,12 +1,25 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 
-export function SearchPanel({ initialValues, genres, onSearch, searching }) {
+export function SearchPanel({ initialValues, genres, onSearch }) {
   const [formState, setFormState] = useState(initialValues);
+  const onSearchRef = useRef(onSearch);
+
+  useEffect(() => {
+    onSearchRef.current = onSearch;
+  }, [onSearch]);
 
   useEffect(() => {
     setFormState(initialValues);
   }, [initialValues]);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      onSearchRef.current(formState);
+    }, 150);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [formState]);
 
   function handleChange(key, value) {
     setFormState((current) => ({ ...current, [key]: value }));
@@ -17,19 +30,17 @@ export function SearchPanel({ initialValues, genres, onSearch, searching }) {
     onSearch(formState);
   }
 
-  function handleReset() {
-    const emptyState = { query: "", media_type: "all", genre: "", year: "" };
-    setFormState(emptyState);
-    onSearch(emptyState);
+  function handleKeyDown(event) {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      onSearch(formState);
+    }
   }
 
   return (
     <form className="search-panel" onSubmit={handleSubmit}>
-      <h2>Search the catalog</h2>
-      <p>Start with a title, then narrow the list with a few quick filters.</p>
-
       <div className="form-grid">
-        <div className="field field-full">
+        <div className="field search-field-query">
           <label htmlFor="query">Title</label>
           <input
             id="query"
@@ -37,10 +48,11 @@ export function SearchPanel({ initialValues, genres, onSearch, searching }) {
             placeholder="The Studio, Dune, Sinners..."
             value={formState.query}
             onChange={(event) => handleChange("query", event.target.value)}
+            onKeyDown={handleKeyDown}
           />
         </div>
 
-        <div className="field">
+        <div className="field search-field-media-type">
           <label htmlFor="media_type">Media type</label>
           <select
             id="media_type"
@@ -53,10 +65,14 @@ export function SearchPanel({ initialValues, genres, onSearch, searching }) {
           </select>
         </div>
 
-        <div className="field">
+        <div className="field search-field-genre">
           <label htmlFor="genre">Genre</label>
-          <select id="genre" value={formState.genre} onChange={(event) => handleChange("genre", event.target.value)}>
-            <option value="">Any</option>
+          <select
+            id="genre"
+            value={formState.genre}
+            onChange={(event) => handleChange("genre", event.target.value)}
+          >
+            <option value="">Any genre</option>
             {genres.map((genre) => (
               <option key={genre.id} value={genre.id}>
                 {genre.name}
@@ -64,27 +80,6 @@ export function SearchPanel({ initialValues, genres, onSearch, searching }) {
             ))}
           </select>
         </div>
-
-        <div className="field field-full">
-          <label htmlFor="year">Release year</label>
-          <input
-            id="year"
-            inputMode="numeric"
-            maxLength={4}
-            placeholder="2024"
-            value={formState.year}
-            onChange={(event) => handleChange("year", event.target.value.replace(/\D/g, "").slice(0, 4))}
-          />
-        </div>
-      </div>
-
-      <div className="button-row">
-        <button className="primary-button" type="submit" disabled={searching}>
-          {searching ? "Searching..." : "Search"}
-        </button>
-        <button className="ghost-button" type="button" onClick={handleReset}>
-          Clear
-        </button>
       </div>
     </form>
   );
