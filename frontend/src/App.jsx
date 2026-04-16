@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { fetchCurrentUser, login, logout, signup } from "./api/auth";
+import { fetchCurrentUser, login, loginWithGoogle, logout, signup } from "./api/auth";
 import {
   addWatchlistItem,
   createReview,
@@ -352,6 +352,20 @@ function App() {
     setAuthError("");
     try {
       const authData = authMode === "signup" ? await signup(payload) : await login(payload);
+      setUser(authData.user);
+      setAuthOpen(false);
+    } catch (submitError) {
+      setAuthError(submitError.message);
+    } finally {
+      setAuthLoading(false);
+    }
+  }
+
+  async function handleGoogleAuth() {
+    setAuthLoading(true);
+    setAuthError("");
+    try {
+      const authData = await loginWithGoogle();
       setUser(authData.user);
       setAuthOpen(false);
     } catch (submitError) {
@@ -810,6 +824,7 @@ function App() {
         mode={authMode}
         onClose={() => setAuthOpen(false)}
         onSubmit={handleAuthSubmit}
+        onGoogleSignIn={handleGoogleAuth}
         onModeChange={setAuthMode}
         loading={authLoading}
         error={authError}

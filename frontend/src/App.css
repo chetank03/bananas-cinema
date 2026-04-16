@@ -329,6 +329,28 @@
   align-items: center;
 }
 
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 18px;
+  color: var(--text-muted);
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--outline);
+}
+
+.auth-google-button {
+  width: 100%;
+  min-height: 52px;
+  margin-top: 14px;
+}
+
 .search-actions {
   margin-top: 0;
   justify-self: end;

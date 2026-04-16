@@ -1,4 +1,5 @@
 import { requestJson } from "./client";
+import { signInWithGooglePopup } from "../firebase";
 
 const TOKEN_STORAGE_KEY = "bananas-cinema-auth-token";
 
@@ -65,4 +66,15 @@ export async function logout() {
     method: "POST",
   });
   clearStoredToken();
+}
+
+
+export async function loginWithGoogle() {
+  const idToken = await signInWithGooglePopup();
+  const data = await jsonRequest("/auth/google/", {
+    method: "POST",
+    body: JSON.stringify({ id_token: idToken }),
+  });
+  setStoredToken(data.token);
+  return data;
 }

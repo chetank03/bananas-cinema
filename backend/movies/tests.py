@@ -235,6 +235,37 @@ class MoviesApiTests(TestCase):
         self.assertEqual(list_response.json()["favorites"][0]["personal_rating"], 4.5)
         self.assertTrue(list_response.json()["favorites"][0]["watch_later"])
 
+    @patch("movies.views._verify_google_id_token")
+    def test_auth_google_creates_user_and_returns_token(self, mock_verify_id_token):
+        mock_verify_id_token.return_value = {
+            "email": "googlefan@example.com",
+            "name": "Google Fan",
+        }
+
+        response = self.client.post("/api/auth/google/", {"id_token": "firebase-token"}, format="json")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["authenticated"])
+        self.assertEqual(response.json()["user"]["email"], "googlefan@example.com")
+        self.assertEqual(User.objects.filter(email="googlefan@example.com").count(), 1)
+
+    @patch("movies.views._verify_google_id_token")
+    def test_auth_google_reuses_existing_user(self, mock_verify_id_token):
+        existing_user = User.objects.create_user(
+            username="googlefan",
+            email="googlefan@example.com",
+            password="secret123",
+        )
+        mock_verify_id_token.return_value = {
+            "email": "googlefan@example.com",
+            "name": "Google Fan",
+        }
+
+        response = self.client.post("/api/auth/google/", {"id_token": "firebase-token"}, format="json")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["user"]["id"], existing_user.id)
+
     def test_watchlist_crud_and_item_management(self):
         user = User.objects.create_user(username="watcher", email="watcher@example.com", password="secret123")
         token = Token.objects.create(user=user)

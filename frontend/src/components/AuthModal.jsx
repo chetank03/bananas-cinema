@@ -5,7 +5,7 @@ const EMPTY_LOGIN = { username: "", password: "" };
 const EMPTY_SIGNUP = { username: "", email: "", password: "" };
 
 
-export function AuthModal({ open, mode, onClose, onSubmit, onModeChange, loading, error }) {
+export function AuthModal({ open, mode, onClose, onSubmit, onGoogleSignIn, onModeChange, loading, error }) {
   const [formState, setFormState] = useState(mode === "signup" ? EMPTY_SIGNUP : EMPTY_LOGIN);
 
   if (!open) {
@@ -87,6 +87,14 @@ export function AuthModal({ open, mode, onClose, onSubmit, onModeChange, loading
             </button>
           </div>
         </form>
+
+        <div className="auth-divider">
+          <span>or</span>
+        </div>
+
+        <button className="ghost-button auth-google-button" type="button" onClick={onGoogleSignIn} disabled={loading}>
+          {loading ? "Please wait..." : "Continue with Google"}
+        </button>
       </div>
     </div>
   );

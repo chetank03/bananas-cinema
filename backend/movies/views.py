@@ -1,9 +1,12 @@
 from collections import OrderedDict
+import re
 
 import requests
 from django.conf import settings
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
+from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token as google_id_token
 from rest_framework.authentication import TokenAuthentication
 from rest_framework.authtoken.models import Token
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
@@ -42,6 +45,39 @@ def _image_url(path):
     if not path:
         return ""
     return f"{settings.TMDB_IMAGE_BASE_URL}{path}"
+
+
+def _verify_google_id_token(firebase_token):
+    if not settings.FIREBASE_PROJECT_ID:
+        raise ValueError("Firebase project id is not configured.")
+
+    decoded_token = google_id_token.verify_firebase_token(firebase_token, google_requests.Request())
+    if not decoded_token:
+        raise ValueError("Invalid Google ID token.")
+
+    audience = decoded_token.get("aud")
+    issuer = decoded_token.get("iss")
+    expected_issuer = f"https://securetoken.google.com/{settings.FIREBASE_PROJECT_ID}"
+    if audience != settings.FIREBASE_PROJECT_ID or issuer != expected_issuer:
+        raise ValueError("Invalid Google ID token.")
+
+    return decoded_token
+
+
+def _candidate_username(display_name, email):
+    raw_value = (display_name or "").strip() or (email or "").split("@")[0]
+    normalized = re.sub(r"[^a-zA-Z0-9_]+", "", raw_value.replace(" ", "_")).strip("_").lower()
+    return normalized[:30] or "bananafan"
+
+
+def _unique_username(base_username):
+    candidate = base_username[:30] or "bananafan"
+    suffix = 1
+    while User.objects.filter(username=candidate).exists():
+        suffix += 1
+        suffix_text = str(suffix)
+        candidate = f"{base_username[: max(1, 30 - len(suffix_text))]}{suffix_text}"
+    return candidate
 
 
 def _year_for_item(item, media_type):
@@ -383,6 +419,38 @@ def auth_login(request):
     user = authenticate(username=username, password=password)
     if user is None:
         return Response({"detail": "Invalid username or password."}, status=400)
+
+    token, _ = Token.objects.get_or_create(user=user)
+    return Response(_serialize_user(user, token))
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def auth_google(request):
+    firebase_token = str(request.data.get("id_token", "")).strip()
+    if not firebase_token:
+        return Response({"detail": "Google ID token is required."}, status=400)
+
+    try:
+        decoded_token = _verify_google_id_token(firebase_token)
+    except ValueError as exc:
+        return Response({"detail": str(exc)}, status=400)
+    except Exception:
+        return Response({"detail": "Invalid Google ID token."}, status=400)
+
+    email = str(decoded_token.get("email", "")).strip().lower()
+    if not email:
+        return Response({"detail": "Google account email is required."}, status=400)
+
+    user = User.objects.filter(email__iexact=email).first()
+    if user is None:
+        base_username = _candidate_username(decoded_token.get("name", ""), email)
+        user = User.objects.create_user(
+            username=_unique_username(base_username),
+            email=email,
+        )
+        user.set_unusable_password()
+        user.save(update_fields=["password"])
 
     token, _ = Token.objects.get_or_create(user=user)
     return Response(_serialize_user(user, token))

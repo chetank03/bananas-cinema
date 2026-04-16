@@ -118,3 +118,5 @@ TMDB_IMAGE_BASE_URL = os.environ.get(
     "TMDB_IMAGE_BASE_URL",
     "https://image.tmdb.org/t/p/w500",
 ).rstrip("/")
+
+FIREBASE_PROJECT_ID = os.environ.get("FIREBASE_PROJECT_ID", "").strip()
