@@ -333,7 +333,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-top: 18px;
+  margin-top: 2px;
   color: var(--text-muted);
 }
 
@@ -348,7 +348,7 @@
 .auth-google-button {
   width: 100%;
   min-height: 52px;
-  margin-top: 14px;
+  margin-top: -6px;
 }
 
 .search-actions {
@@ -822,8 +822,10 @@
 .auth-modal {
   width: min(520px, 100%);
   border-radius: 28px;
-  padding: 24px;
+  padding: 30px 32px;
   background: linear-gradient(180deg, var(--surface-strong), var(--surface));
+  display: grid;
+  gap: 22px;
 }
 
 .watchlists-modal {
@@ -1045,8 +1047,52 @@
 .auth-header {
   display: flex;
   justify-content: space-between;
-  gap: 16px;
+  gap: 20px;
   align-items: start;
+}
+
+.auth-header h2 {
+  margin: 8px 0 0;
+  font-size: clamp(2rem, 4vw, 2.8rem);
+  line-height: 0.96;
+  letter-spacing: -0.03em;
+}
+
+.auth-copy {
+  margin: 0;
+  max-width: 28rem;
+  font-size: 1rem;
+  line-height: 1.65;
+}
+
+.auth-form {
+  display: grid;
+  gap: 18px;
+}
+
+.auth-form .field {
+  gap: 10px;
+}
+
+.auth-form .field label {
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.auth-form .field input {
+  min-height: 68px;
+  padding: 18px 20px;
+  border-radius: 20px;
+}
+
+.auth-button-row {
+  margin-top: 6px;
+  gap: 14px;
+}
+
+.auth-button-row .primary-button,
+.auth-button-row .ghost-button {
+  min-height: 54px;
 }
 
 .detail-backdrop {

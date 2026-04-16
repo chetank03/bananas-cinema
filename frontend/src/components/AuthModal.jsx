@@ -42,7 +42,7 @@ export function AuthModal({ open, mode, onClose, onSubmit, onGoogleSignIn, onMod
 
         {error ? <div className="status-banner error">{error}</div> : null}
 
-        <form onSubmit={handleSubmit}>
+        <form className="auth-form" onSubmit={handleSubmit}>
           <div className="field">
             <label htmlFor="auth-username">Username</label>
             <input
@@ -74,7 +74,7 @@ export function AuthModal({ open, mode, onClose, onSubmit, onGoogleSignIn, onMod
             />
           </div>
 
-          <div className="button-row">
+          <div className="button-row auth-button-row">
             <button className="primary-button" type="submit" disabled={loading}>
               {loading ? "Please wait..." : mode === "signup" ? "Create account" : "Sign in"}
             </button>
