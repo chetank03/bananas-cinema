@@ -6,6 +6,7 @@ import requests
 from django.conf import settings
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
+from django.db import IntegrityError, transaction
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 from rest_framework.authentication import TokenAuthentication
@@ -439,25 +440,42 @@ def auth_google(request):
     try:
         decoded_token = _verify_google_id_token(firebase_token)
     except ValueError as exc:
+        logger.warning("Google sign-in rejected: %s", exc)
         return Response({"detail": str(exc)}, status=400)
     except Exception:
+        logger.exception("Google token verification failed")
         return Response({"detail": "Invalid Google ID token."}, status=400)
 
     email = str(decoded_token.get("email", "")).strip().lower()
     if not email:
         return Response({"detail": "Google account email is required."}, status=400)
 
-    user = User.objects.filter(email__iexact=email).first()
-    if user is None:
-        base_username = _candidate_username(decoded_token.get("name", ""), email)
-        user = User.objects.create_user(
-            username=_unique_username(base_username),
-            email=email,
-        )
-        user.set_unusable_password()
-        user.save(update_fields=["password"])
+    try:
+        user = User.objects.filter(email__iexact=email).first()
+        if user is None:
+            base_username = _candidate_username(decoded_token.get("name", ""), email)
+            with transaction.atomic():
+                user = User.objects.create_user(
+                    username=_unique_username(base_username),
+                    email=email,
+                )
+                user.set_unusable_password()
+                user.save(update_fields=["password"])
+    except IntegrityError:
+        logger.exception("Google sign-in user creation hit an integrity error for %s", email)
+        user = User.objects.filter(email__iexact=email).first()
+        if user is None:
+            return Response({"detail": "Could not create Google account user."}, status=500)
+    except Exception:
+        logger.exception("Google sign-in user lookup/creation failed for %s", email)
+        return Response({"detail": "Could not complete Google sign in."}, status=500)
 
-    token, _ = Token.objects.get_or_create(user=user)
+    try:
+        token, _ = Token.objects.get_or_create(user=user)
+    except Exception:
+        logger.exception("Google sign-in token creation failed for user %s", user.id if user else "unknown")
+        return Response({"detail": "Could not create session token."}, status=500)
+
     return Response(_serialize_user(user, token))
 
 
