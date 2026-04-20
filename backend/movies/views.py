@@ -1,4 +1,5 @@
 from collections import OrderedDict
+import logging
 import re
 
 import requests
@@ -14,6 +15,9 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
 from .models import Favorite, Review, Watchlist, WatchlistItem
+
+
+logger = logging.getLogger(__name__)
 
 
 class TMDbError(Exception):
@@ -300,12 +304,13 @@ def _details_payload(media_type, tmdb_id):
 
 
 def _serialize_review(review):
+    created_at = review.created_at.isoformat() if review.created_at else ""
     return {
         "id": review.id,
-        "author_name": review.author_name,
+        "author_name": review.author_name or "Anonymous",
         "rating": review.rating,
-        "content": review.content,
-        "created_at": review.created_at.isoformat(),
+        "content": review.content or "",
+        "created_at": created_at,
     }
 
 
@@ -540,7 +545,13 @@ def title_reviews(request, media_type, tmdb_id):
 
     if request.method == "GET":
         reviews = Review.objects.filter(media_type=media_type, tmdb_id=tmdb_id)
-        return Response({"reviews": [_serialize_review(review) for review in reviews]})
+        serialized_reviews = []
+        for review in reviews:
+            try:
+                serialized_reviews.append(_serialize_review(review))
+            except Exception:
+                logger.exception("Failed to serialize review %s for %s:%s", review.id, media_type, tmdb_id)
+        return Response({"reviews": serialized_reviews})
 
     if not request.user or not request.user.is_authenticated:
         return Response({"detail": "Sign in to post a review."}, status=401)

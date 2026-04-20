@@ -39,6 +39,24 @@ class MoviesApiTests(TestCase):
         self.assertEqual(len(list_response.json()["reviews"]), 1)
         self.assertEqual(list_response.json()["reviews"][0]["author_name"], "casey")
 
+    @patch("movies.views._serialize_review")
+    def test_review_list_skips_unserializable_rows(self, mock_serialize_review):
+        Review.objects.create(
+            media_type="movie",
+            tmdb_id=550,
+            title_snapshot="Fight Club",
+            author_name="casey",
+            rating=9,
+            content="Sharp and rewatchable.",
+        )
+
+        mock_serialize_review.side_effect = RuntimeError("bad review row")
+
+        response = self.client.get("/api/reviews/movie/550/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["reviews"], [])
+
     @patch("movies.views._search_payload")
     def test_search_endpoint(self, mock_search_payload):
         mock_search_payload.return_value = {

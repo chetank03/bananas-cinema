@@ -269,12 +269,15 @@ function App() {
     setLoadingDetails(true);
     setError("");
     try {
-      const [details, reviewData] = await Promise.all([
-        fetchTitleDetails(item.media_type, item.id),
-        fetchReviews(item.media_type, item.id),
-      ]);
+      const details = await fetchTitleDetails(item.media_type, item.id);
       setSelectedTitle(details);
-      setSelectedReviews(reviewData.reviews);
+      try {
+        const reviewData = await fetchReviews(item.media_type, item.id);
+        setSelectedReviews(reviewData.reviews);
+      } catch (reviewError) {
+        console.error("Failed to load reviews", reviewError);
+        setSelectedReviews([]);
+      }
     } catch (detailError) {
       setError(detailError.message);
     } finally {
