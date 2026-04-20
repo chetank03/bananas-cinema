@@ -1,5 +1,6 @@
 from pathlib import Path
 import os
+from urllib.parse import parse_qs, urlparse
 
 from dotenv import load_dotenv
 
@@ -10,6 +11,23 @@ load_dotenv(BASE_DIR / ".env")
 
 def _split_env_list(name, default=""):
     return [item.strip() for item in os.environ.get(name, default).split(",") if item.strip()]
+
+
+def _database_config_from_url(database_url):
+    parsed = urlparse(database_url)
+    if parsed.scheme not in {"postgres", "postgresql"}:
+        raise ValueError("Unsupported DATABASE_URL scheme.")
+
+    options = {key: values[-1] for key, values in parse_qs(parsed.query).items() if values}
+    return {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": parsed.path.lstrip("/"),
+        "USER": parsed.username or "",
+        "PASSWORD": parsed.password or "",
+        "HOST": parsed.hostname or "localhost",
+        "PORT": str(parsed.port or "5432"),
+        **({"OPTIONS": options} if options else {}),
+    }
 
 SECRET_KEY = os.environ.get("SECRET_KEY", "bananas-cinema-dev-secret-key")
 DEBUG = os.environ.get("DEBUG", "True") == "True"
@@ -66,7 +84,13 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "config.wsgi.application"
 
-if os.environ.get("DB_NAME"):
+database_url = os.environ.get("DATABASE_URL", "").strip()
+
+if database_url:
+    DATABASES = {
+        "default": _database_config_from_url(database_url)
+    }
+elif os.environ.get("DB_NAME"):
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",
