@@ -1,19 +1,59 @@
 # Bananas Cinema
 
-Bananas Cinema is a React + Django web application for discovering movies and TV shows with data from TMDb.
+Bananas Cinema is a React and Django web application for discovering movies and TV
+shows with data from TMDb. The Django layer is a proxy and a persistence layer, not a
+passthrough: the TMDb key never reaches the browser, and accounts, reviews, favorites,
+and watchlists are stored server side.
 
 ## Features
 
+**Discovery**
 - TMDb-backed home sections for trending, popular movies, popular TV, and upcoming releases
 - Search by title with media type, genre, and year filters
-- Detailed title drawer with cast, crew, and trailer links
-- Review storage in Django with a Postgres-ready model
-- Local favorites support in the frontend
+- Title detail view with cast, crew, and trailer links
+
+**Accounts**
+- Email and password signup and login, plus Sign in with Google
+- Google sign-in verifies the Firebase ID token server side and re-checks both the `aud`
+  and `iss` claims against the configured project before trusting it
+- Token auth, with `auth/me` returning the current user
+
+**Library**
+- Favorites persisted per user, with an optional personal rating and a watch-later flag
+- Named watchlists, each holding its own items, with add and remove
+- Reviews stored per title with a rating and author snapshot
+
+## API
+
+18 endpoints under `movies/urls.py`:
+
+| Group | Endpoints |
+| --- | --- |
+| Health | `health/` |
+| Auth | `auth/signup/`, `auth/login/`, `auth/google/`, `auth/logout/`, `auth/me/` |
+| Discovery | `home/`, `genres/`, `search/`, `titles/<media_type>/<tmdb_id>/` |
+| Reviews | `reviews/<media_type>/<tmdb_id>/` |
+| Favorites | `favorites/`, `favorites/<id>/` |
+| Watchlists | `watchlists/`, `watchlists/<id>/`, `watchlists/<id>/items/`, `watchlists/<id>/items/<id>/` |
+
+## Tests
+
+```bash
+cd backend
+python manage.py test
+```
+
+12 tests in `movies/tests.py`, covering the endpoints and asserting the exact query
+parameters sent upstream to TMDb.
 
 ## Architecture
 
-- `frontend/`: React + Vite client
+- `frontend/`: React and Vite client
 - `backend/`: Django REST API
+- `backend/movies/models.py`: `Review`, `Favorite`, `Watchlist`, `WatchlistItem`
+
+The TMDb API key is read from settings and used only in `_tmdb_get` on the server. The
+client never sees it, and every TMDb call is proxied through the Django API.
 
 ## Backend setup
 
